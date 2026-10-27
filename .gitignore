@@ -1,0 +1,8 @@
+# 依存（three / 3d-tiles-renderer は npm i で入る。ブラウザは CDN から読む）
+node_modules/
+# Claude Code の作業用
+.claude/
+# OS・エディタ
+.DS_Store
+Thumbs.db
+*.log

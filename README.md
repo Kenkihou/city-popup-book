@@ -1,0 +1,81 @@
+# 飛び出す絵本メーカー（PLATEAU → 折り紙建築）
+
+国土交通省 **Project PLATEAU** の 3D 都市モデル（建築物 LOD2）から建物を 1 棟選び、**最低限の単純化**をしたうえで、
+**ページを 90° に開くと立体が立ち上がる飛び出す絵本（折り紙建築式）** の設計図（SVG・mm 単位）を描き出す。
+
+リポジトリ: https://github.com/Kenkihou/city-popup-book
+
+第 1 号は **京都市役所**（`models/kyoto-cityhall.glb`、起動時に自動で読み込む）。設計図は `output/kyoto-cityhall_A4.svg`・`_A3.svg`。
+
+```bash
+python serve.py            # http://localhost:8765/ を開く（開発用・キャッシュ無効。「output/ に保存」もこのサーバー経由）
+```
+
+ブラウザ側は three.js と Draco 解読器を CDN（jsdelivr）から読むので、静的配信（GitHub Pages など）でそのまま動く。
+`npm i` は Node の道具（`tools/`）を使うときだけ必要。
+
+Node 版（ブラウザと同じ部品で、コマンドから設計図を作る）:
+
+```bash
+node tools/extract_building.mjs search 35.01156 135.76815 120          # 地点のまわりの建物一覧（名前・高さ・大きさ）
+node tools/extract_building.mjs bldg_47f88f29-94bf-4cf9-8b1f-e5ddc674d930 35.01156 135.76815 models/kyoto-cityhall.glb
+node tools/make_popup.mjs --glb models/kyoto-cityhall.glb --out output/kyoto-cityhall_A4 --side -v --cell 3 --step 3 --cut 6 --paper A4 --ascii
+```
+
+## 画面の流れ
+
+| 段 | すること | 部品 |
+|---|---|---|
+| ① 建物を選ぶ | PLATEAU の tileset（京都市の区、またはデータカタログで市区町村コードから）＋緯度経度 → 半径内の建物一覧 → 1 棟を切り出す。GLB の読み込みも可 | `js/plateau.js` `js/b3dm.js` |
+| ② 最低限の単純化 | 屋根の辺の方向から建物の軸を決め、軸にそろえた升目（cell[m]）に屋根の高さを落とし、step[m] 刻みに丸める。小さな升は 3×3 の多数決でならす | `js/simplify.js` |
+| ③ 機構 | 背（立て紙）の側を 4 方向から選ぶ（埋めが最小の向きを自動で提案）。帯（ストリップ）ごとに階段状の折れ線を作る | `js/popup.js` |
+| ④ 紙と縮尺 | A4/A3/B5/B4 … と縮尺（自動は 1/100〜1/3000 のきりのよい値） | `js/pattern.js` |
+| 設計図 | SVG（実線＝切る、一点鎖線＝山折り、破線＝谷折り、鉛直面を薄く塗る）。保存・印刷・設計データ JSON | `js/pattern.js` |
+| 3D | 元の建物／単純化ブロック／紙の模型。開き角 0°〜180° で動きを確かめる | `js/view3d.js` |
+
+## しくみ（折り紙建築式・90° カード）
+
+- 1 枚の紙の中央を谷折り（背）にして 90° に開く。背に直交する 2 本の切り込みで挟んだ帯を、背に平行な折り線で階段状に折る。
+- 開いた状態の断面は、**台紙に平行な踏み面**と**立て紙に平行な蹴上げ**の交互の折れ線。開き角を変えても踏み面は台紙に、蹴上げは立て紙に平行のまま動く（平行四辺形の連なり）。
+  足もと（台紙上・背から a）から立て紙への付け根（高さ M）まで、横の合計 = a、縦の合計 = M なら、どの角度でも成立する。
+- **1 枚の紙では、帯の平らな長さ（a + M）が折れ線の長さに等しくなければならない。** → 背に向かって**下がる**段は作れない（下がる段 1 つにつき、その高さの 2 倍の紙が足りない）。
+  そこで、背に向かう途中で低くなる部分は手前の高さまで**埋める**（埋め率として表示）。
+- 埋めを減らす手段は 2 つ。(1) 背の向きを変える（高い部分が背側に来る向き）、(2) **背を建物に食い込ませる**（高い塔のすぐ後ろに立て紙を置く。奥側は立て紙に吸収され、参考線の背景になる）。
+  京都市役所は正面（南）中央に塔があるので、「北を背に」＋「背を 18m 食い込ませる」で埋め 2.9%（既定の自動＝南を背にだと 34.7%）。
+
+## テクスチャ（PLATEAU の画像）を使う
+
+- 切り出し時に、建物の三角形と一緒に UV と材質の画像（タイルの壁面画像。WebP）を持ち帰る（`js/b3dm.js` の `extractBuilding`、`encodeGlb` で glb に埋める）。
+  Node 版はさらに、建物が使う範囲だけに画像を切り詰める（Pillow。8192px・3.6MB → 1313×2048px・0.5MB）。
+- 3D 画面の「元の建物」はテクスチャ付きで出す（航空写真由来で陰影を含むので照明は掛けない）。
+- **設計図への貼り込み**（④「PLATEAU の画像を貼る」）：元の建物を絵本の座標に置いたまま、**正面図**（手前から背を見る正射投影）と**平面図**（真上から）を描き、
+  蹴上げ（鉛直面）には正面図の該当する高さの帯を、踏み面には平面図の該当する奥行の帯を、立て紙の帯の付け根より上には正面図（吸収した奥側の立面）を貼る。
+  帯の中では段が背に向かって高くなるだけなので、正面図でその高さに見えている面はその蹴上げ自身（手前に遮るものが無い）。紙の模型にも同じ画像を貼るので、印刷した姿を 3D で確かめられる。
+- 画像は紙の 1mm あたりの画素数（既定 6px/mm ≒ 150dpi）で描き、SVG に PNG として 2 枚だけ埋めて面ごとに参照する（A4 で約 0.9MB、A3 で約 1.7MB）。
+- Node 版 CLI（`make_popup.mjs`）には WebGL が無いので画像は貼れない。画像付きの設計図はブラウザの「SVG を保存」か「output/ に保存」（`serve.py` で開いているときだけ）で出す。
+
+## PLATEAU の読み方（04_earth-simulator の知見）
+
+- 配信 `assets.cms.plateau.reearth.io` は CORS が開いているのでブラウザから直接 b3dm を読める。tileset の URL は `js/b3dm.js`（京都市 9 区）か、データカタログの GraphQL（`catalogTilesets`）で市区町村コードから引く。
+- b3dm の中身は Draco 圧縮の glTF。three 同梱の `draco_decoder.js`（JS 版）で解く。建物は頂点属性 `_BATCHID` と batch table（`gml_id`・`gml:name`・`bldg:usage`・`bldg:measuredHeight` …）で区別する。
+- 座標は ECEF。`ECEF = (x, -z, y) + RTC_CENTER` にタイルの transform を掛け、建物の足もとの中心を原点とする ENU（東=+x・上=+y・北=-z）に直す。
+- 葉タイルは 1 枚 5〜7MB。地点を含むタイルだけ読む（`leaves`）。
+
+## ファイル
+
+```
+index.html           画面
+js/main.js           配線（①〜④・保存・印刷）
+js/view3d.js         three.js の画面（紙の模型は開き角で作り直す）
+js/simplify.js       単純化（軸・升目・量子化・ブロック分け）        ← Node と共通（外部依存なし）
+js/popup.js          機構（向き・帯・折れ線・適合確認・縮尺）         ← 同上
+js/pattern.js        設計図 SVG                                      ← 同上
+js/b3dm.js           PLATEAU b3dm の読み取り                          ← 同上
+js/plateau.js        ブラウザ側の取得（fetch・Draco・カタログ）
+tools/extract_building.mjs  Node で建物を探す／glb に切り出す
+tools/make_popup.mjs        Node で設計図を作る
+models/              切り出した建物（glb + 属性 json）
+output/              設計図
+```
+
+出典：国土交通省 Project PLATEAU 3D 都市モデル。利用にあたっては [PLATEAU の利用規約](https://www.mlit.go.jp/plateau/site-policy/) を確認すること。

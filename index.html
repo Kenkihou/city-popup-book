@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>飛び出す絵本メーカー — PLATEAU の建物から折り紙建築の設計図を作る</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#f3f1ea; --panel:#fff; --ink:#222; --sub:#666; --line:#ddd; --accent:#1f5fbf; --accent2:#c0392b; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font-family: 'Noto Sans JP','Hiragino Sans','Yu Gothic UI','Meiryo',sans-serif; color:var(--ink); background:var(--bg); font-size:13px; }
+  #app { display:grid; grid-template-columns: 1fr 400px; grid-template-rows: 44px 1fr; height:100%; }
+  header { grid-column: 1 / 3; display:flex; align-items:center; gap:14px; padding:0 14px; background:#2b2a27; color:#f6f3ea; }
+  header h1 { font-size:15px; margin:0; font-weight:600; }
+  header .sub { color:#c9c3b3; font-size:12px; }
+  header .spacer { flex:1; }
+  header a { color:#c9c3b3; }
+  #left { position:relative; display:grid; grid-template-rows: 1fr 300px; min-width:0; }
+  #view { position:relative; min-height:0; }
+  #view canvas { display:block; }
+  #viewbar { position:absolute; left:10px; top:10px; display:flex; gap:6px; align-items:center; background:rgba(255,255,255,.9); padding:6px 8px; border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.15); flex-wrap:wrap; max-width:calc(100% - 20px); }
+  #viewbar label { display:flex; gap:4px; align-items:center; }
+  #viewbar input[type=range] { width:160px; }
+  #patternwrap { border-top:1px solid var(--line); background:#e9e6dd; display:grid; grid-template-rows:auto 1fr; min-height:0; }
+  #patternbar { display:flex; gap:8px; align-items:center; padding:6px 10px; background:#fff; border-bottom:1px solid var(--line); }
+  #pattern { overflow:auto; padding:8px; }
+  #pattern svg { background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.2); height: calc(100% - 4px); width:auto; max-width:100%; display:block; margin:0 auto; }
+  #panel { background:var(--panel); border-left:1px solid var(--line); overflow:auto; padding:10px 12px 30px; }
+  section { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:10px; background:#fff; }
+  section h2 { font-size:13px; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  section h2 .num { display:inline-flex; width:20px; height:20px; border-radius:50%; background:var(--accent); color:#fff; align-items:center; justify-content:center; font-size:12px; }
+  .row { display:flex; gap:6px; align-items:center; margin:5px 0; flex-wrap:wrap; }
+  .row label { color:var(--sub); min-width:88px; }
+  input[type=number], input[type=text], select { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:13px; }
+  input[type=number] { width:76px; }
+  input[type=text] { flex:1; min-width:0; }
+  button { padding:5px 10px; border:1px solid #bbb; background:#fafafa; border-radius:5px; cursor:pointer; font-size:13px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  .hint { color:var(--sub); font-size:12px; margin:4px 0; line-height:1.5; }
+  .readout { background:#f6f6f2; border-radius:5px; padding:6px 8px; font-size:12px; line-height:1.6; margin-top:6px; white-space:pre-wrap; }
+  .warn { color:var(--accent2); }
+  .ok { color:#1b7f3b; }
+  table.list { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+  table.list th, table.list td { border-bottom:1px solid #eee; padding:3px 4px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+  table.list tr.sel td { background:#e8f0ff; }
+  table.list tbody tr { cursor:pointer; }
+  table.list tbody tr:hover td { background:#f3f6fc; }
+  .sides { display:grid; grid-template-columns: repeat(5, 1fr); gap:4px; }
+  .sides button { padding:5px 2px; font-size:12px; }
+  .sides button.on { background:#e8f0ff; border-color:var(--accent); color:var(--accent); font-weight:600; }
+  #status { position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.65); color:#fff; padding:4px 8px; border-radius:4px; font-size:12px; display:none; max-width:70%; }
+  details summary { cursor:pointer; color:var(--sub); }
+  @media print {
+    body * { visibility:hidden; }
+    #pattern, #pattern * { visibility:visible; }
+    #pattern { position:absolute; left:0; top:0; padding:0; margin:0; overflow:visible; background:#fff; }
+    #pattern svg { box-shadow:none; height:auto; width:auto; max-width:none; margin:0; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+  }
+}
+</script>
+<!-- PLATEAU の b3dm（Draco 圧縮）をこの画面で解くための解読器。three に同梱の JS 版（wasm 不要）。
+     ★ three も解読器も CDN から読む（GitHub Pages でそのまま動かすため。node_modules は Node の道具用） -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/libs/draco/draco_decoder.js"></script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>飛び出す絵本メーカー</h1>
+    <span class="sub">PLATEAU の建物 → 最低限の単純化 → 90° に開くと立ち上がる折り紙建築の設計図</span>
+    <span class="spacer"></span>
+    <span class="sub">出典：国土交通省 Project PLATEAU（<a href="https://www.mlit.go.jp/plateau/site-policy/" target="_blank" rel="noopener">利用規約</a>）</span>
+  </header>
+  <div id="left">
+    <div id="view">
+      <div id="viewbar">
+        <label><input type="radio" name="mode" value="original"> 元の建物</label>
+        <label><input type="radio" name="mode" value="blocks"> 単純化</label>
+        <label><input type="radio" name="mode" value="popup" checked> 飛び出す絵本</label>
+        <span style="width:8px"></span>
+        <label>開き角 <input type="range" id="theta" min="0" max="180" value="90" step="1"> <span id="thetaVal">90°</span></label>
+        <button id="animate" title="閉じた状態から開く動きを見る">▶ 開く</button>
+        <label><input type="checkbox" id="showGhost" checked> 元の建物を重ねる</label>
+      </div>
+      <div id="status"></div>
+    </div>
+    <div id="patternwrap">
+      <div id="patternbar">
+        <strong>設計図</strong>
+        <span id="patternInfo" class="hint"></span>
+        <span class="spacer" style="flex:1"></span>
+        <button id="openSvg" title="大きく見る">別タブで開く</button>
+        <button id="saveSvg">SVG を保存</button>
+        <button id="print">印刷…</button>
+        <button id="saveJson">設計データ(JSON)</button>
+        <button id="saveServer" title="serve.py で開いているときだけ。output/ に書く">output/ に保存</button>
+        <button id="saveGlb">建物 GLB</button>
+      </div>
+      <div id="pattern"></div>
+    </div>
+  </div>
+  <aside id="panel">
+    <section>
+      <h2><span class="num">1</span>建物を選ぶ</h2>
+      <div class="row"><label>PLATEAU データ</label>
+        <select id="tileset" style="flex:1"></select></div>
+      <div class="row" id="tilesetUrlRow" style="display:none"><label>tileset.json</label><input type="text" id="tilesetUrl" placeholder="https://…/tileset.json"></div>
+      <div class="row"><label>市区町村コード</label><input type="text" id="cityCode" placeholder="26100（京都市）" style="width:110px;flex:none"><button id="catalog">カタログで探す</button></div>
+      <div class="row"><label>地点</label>
+        <input type="number" id="lat" step="0.00001" value="35.01156" title="緯度"> <input type="number" id="lon" step="0.00001" value="135.76815" title="経度">
+        <input type="number" id="radius" value="120" min="20" max="600" step="10" title="半径[m]" style="width:64px">m</div>
+      <div class="row"><button id="search" class="primary">この地点のまわりの建物を探す</button>
+        <label style="min-width:0"><input type="file" id="glbFile" accept=".glb,.gltf" style="display:none"><button id="glbBtn">GLB を読み込む</button></label></div>
+      <div id="results"></div>
+      <div class="readout" id="buildingInfo">（京都市役所を読み込み中…）</div>
+    </section>
+    <section>
+      <h2><span class="num">2</span>最低限の単純化</h2>
+      <div class="row"><label>升目の大きさ</label><input type="number" id="cell" value="3" min="0.5" max="10" step="0.5">m</div>
+      <div class="row"><label>高さの刻み</label><input type="number" id="step" value="3" min="0.5" max="10" step="0.5">m</div>
+      <div class="row"><label>無視する高さ</label><input type="number" id="minHeight" value="1.5" min="0" max="10" step="0.5">m 未満</div>
+      <div class="row"><label>ならし</label><input type="number" id="smooth" value="1" min="0" max="3" step="1">回</div>
+      <div class="row"><label>向き</label><label style="min-width:0"><input type="checkbox" id="autoPhi" checked> 自動（屋根の辺から）</label><input type="number" id="phi" value="0" min="0" max="90" step="0.5" disabled>°</div>
+      <div class="readout" id="simplifyInfo"></div>
+    </section>
+    <section>
+      <h2><span class="num">3</span>飛び出す絵本の機構</h2>
+      <div class="hint">1 枚の紙を 90° に開く「折り紙建築」式。帯を階段状に折って立たせます。背（立て紙）に向かって低くなる部分は作れないので、手前の高さまで埋めます（埋め率に出ます）。</div>
+      <div class="row"><label>背（立て紙）の側</label></div>
+      <div class="sides" id="sides"></div>
+      <div class="row"><label>背を建物に食い込ませる</label><input type="range" id="cut" min="0" max="100" value="0" step="1" style="flex:1"><span id="cutVal">0m</span></div>
+      <div class="hint">食い込ませた奥側は立て紙に吸収され、参考線（点線）の背景になります。手前に高い塔がある建物では、塔のすぐ後ろまで食い込ませると埋めが減ります。</div>
+      <div class="row"><label>すきま</label><input type="number" id="gap" value="0" min="0" max="50" step="1">m（建物の背面と立て紙）</div>
+      <div class="row"><label>帯の最小幅</label><input type="number" id="minStrip" value="1" min="1" max="6" step="1">升</div>
+      <div class="readout" id="popupInfo"></div>
+    </section>
+    <section>
+      <h2><span class="num">4</span>紙と縮尺</h2>
+      <div class="row"><label>紙</label><select id="paper"></select></div>
+      <div class="row"><label>縮尺</label><label style="min-width:0"><input type="checkbox" id="autoScale" checked> 自動</label> 1/<input type="number" id="scale" value="500" min="50" max="5000" step="50" disabled></div>
+      <div class="row"><label>蹴上げの塗り</label><label style="min-width:0"><input type="checkbox" id="shading" checked> 薄く塗る</label></div>
+      <div class="row"><label>テクスチャ</label><label style="min-width:0"><input type="checkbox" id="texPrint" checked> PLATEAU の画像を貼る</label>
+        <input type="number" id="pxPerMm" value="6" min="2" max="16" step="1" style="width:56px" title="印刷画像の細かさ（紙の 1mm あたりの画素数）">px/mm</div>
+      <div class="hint">蹴上げ（鉛直面）には正面図の壁面、踏み面には平面図の屋根、立て紙には奥側の立面を、元の建物の正射投影から貼ります。テクスチャの無い建物では何も貼りません。</div>
+      <div class="readout" id="fitInfo"></div>
+    </section>
+    <details><summary>使い方・しくみ</summary>
+      <div class="hint">
+        ① 地点のまわりの建物を PLATEAU（建築物 LOD2）から探して選ぶ（または GLB を読み込む）。<br>
+        ② 屋根を升目に落として高さを刻む（最低限の単純化）。<br>
+        ③ 背の向きと食い込みを決める。4 方向のうち埋めが最小の向きが自動で選ばれます。<br>
+        ④ 紙と縮尺を決め、下の設計図を SVG で保存、または印刷。実線＝切る、一点鎖線＝山折り、破線＝谷折り。<br>
+        3D 画面の「開き角」で、閉じた本から 90°、平らな紙（180°）までの動きを確かめられます。
+      </div>
+    </details>
+  </aside>
+</div>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "city-popup-book",
+  "version": "0.1.0",
+  "description": "PLATEAU の建物から飛び出す絵本（折り紙建築・90度カード）の設計図を作る",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "python serve.py",
+    "extract": "node tools/extract_building.mjs",
+    "make": "node tools/make_popup.mjs"
+  },
+  "dependencies": {
+    "3d-tiles-renderer": "^0.4.28",
+    "three": "^0.185.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kenkihou/city-popup-book.git"
+  },
+  "homepage": "https://github.com/Kenkihou/city-popup-book"
+}

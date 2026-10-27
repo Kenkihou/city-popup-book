@@ -1,0 +1,147 @@
+{
+ "source": "国土交通省 Project PLATEAU 3D都市モデル",
+ "gml_id": "bldg_47f88f29-94bf-4cf9-8b1f-e5ddc674d930",
+ "name": "京都市役所",
+ "lat": 35.0116209,
+ "lon": 135.7681164,
+ "baseHeight": 79.29,
+ "attributes": {
+  "meshcode": "52354611",
+  "feature_type": "bldg:Building",
+  "city_code": "26104",
+  "city_name": "京都府京都市中京区",
+  "gml_id": "bldg_47f88f29-94bf-4cf9-8b1f-e5ddc674d930",
+  "attributes": {
+   "meshcode": 52354611,
+   "feature_type": "bldg:Building",
+   "gml:id": "bldg_47f88f29-94bf-4cf9-8b1f-e5ddc674d930",
+   "gml:name": "京都市役所",
+   "core:creationDate": "2024-03-22",
+   "bldg:class": "堅ろう建物",
+   "bldg:class_code": "3002",
+   "bldg:usage": "官公庁施設",
+   "bldg:usage_code": "421",
+   "bldg:yearOfConstruction": "0001",
+   "bldg:measuredHeight": 34.1,
+   "bldg:measuredHeight_uom": "m",
+   "bldg:storeysAboveGround": 0,
+   "bldg:storeysBelowGround": 0,
+   "uro:BuildingIDAttribute": [
+    {
+     "uro:buildingID": "26100-bldg-420325",
+     "uro:prefecture": "京都府",
+     "uro:prefecture_code": "26",
+     "uro:city": "京都府京都市中京区",
+     "uro:city_code": "26104"
+    }
+   ],
+   "uro:BuildingDetailAttribute": [
+    {
+     "uro:totalFloorArea": 43391.04,
+     "uro:totalFloorArea_uom": "m2",
+     "uro:buildingStructureType": "不明",
+     "uro:buildingStructureType_code": "611",
+     "uro:surveyYear": 2025
+    }
+   ],
+   "uro:RiverFloodingRiskAttribute": [
+    {
+     "uro:description": "淀川水系鴨川・高野川",
+     "uro:description_code": "4",
+     "uro:rank": "0.5m以上3m未満",
+     "uro:rank_code": "2",
+     "uro:depth": 2.36,
+     "uro:depth_uom": "m",
+     "uro:adminType": "都道府県",
+     "uro:adminType_code": "2",
+     "uro:scale": "L2（想定最大規模）",
+     "uro:scale_code": "2",
+     "uro:duration": 2.0333,
+     "uro:duration_uom": "hour"
+    }
+   ],
+   "uro:DataQualityAttribute": [
+    {
+     "uro:geometrySrcDescLod0": "公共測量成果",
+     "uro:geometrySrcDescLod0_code": "000",
+     "uro:geometrySrcDescLod1": "公共測量成果",
+     "uro:geometrySrcDescLod1_code": "000",
+     "uro:geometrySrcDescLod2": "公共測量成果",
+     "uro:geometrySrcDescLod2_code": "000",
+     "uro:geometrySrcDescLod3": "未作成",
+     "uro:geometrySrcDescLod3_code": "999",
+     "uro:thematicSrcDesc": [
+      "都市計画基礎調査",
+      "その他の資料",
+      "建築計画概要書",
+      "写真判読"
+     ],
+     "uro:thematicSrcDesc_code": [
+      "201",
+      "700",
+      "701",
+      "802"
+     ],
+     "uro:appearanceSrcDescLod2": "空中写真",
+     "uro:appearanceSrcDescLod2_code": "1",
+     "uro:appearanceSrcDescLod3": "未作成",
+     "uro:appearanceSrcDescLod3_code": "99",
+     "uro:lodType": "LOD2.0",
+     "uro:lodType_code": "2.0",
+     "uro:lod1HeightType": "点群から取得_中央値",
+     "uro:lod1HeightType_code": "2",
+     "uro:PublicSurveyDataQualityAttribute": [
+      {
+       "uro:srcScaleLod0": "地図情報レベル2500",
+       "uro:srcScaleLod0_code": "1",
+       "uro:srcScaleLod1": "地図情報レベル2500",
+       "uro:srcScaleLod1_code": "1",
+       "uro:srcScaleLod2": "地図情報レベル2500",
+       "uro:srcScaleLod2_code": "1",
+       "uro:publicSurveySrcDescLod0": "数値地形図データ",
+       "uro:publicSurveySrcDescLod0_code": "023",
+       "uro:publicSurveySrcDescLod1": "数値地形図データ",
+       "uro:publicSurveySrcDescLod1_code": "023",
+       "uro:publicSurveySrcDescLod2": "空中写真測量の測量成果",
+       "uro:publicSurveySrcDescLod2_code": "003"
+      }
+     ]
+    }
+   ]
+  },
+  "gml:name": "京都市役所",
+  "core:creationDate": "2024-03-22",
+  "bldg:class": "堅ろう建物",
+  "bldg:usage": "官公庁施設",
+  "uro:BuildingIDAttribute_uro:buildingID": "26100-bldg-420325",
+  "uro:BuildingIDAttribute_uro:prefecture": "京都府",
+  "uro:BuildingIDAttribute_uro:city": "京都府京都市中京区",
+  "uro:BuildingDetailAttribute_uro:totalFloorArea": 43391.04,
+  "uro:BuildingDetailAttribute_uro:buildingStructureType": "不明",
+  "uro:BuildingDetailAttribute_uro:surveyYear": "2025",
+  "uro:geometrySrcDescLod1": "公共測量成果",
+  "uro:lodType": "LOD2.0",
+  "uro:lod1HeightType": "点群から取得_中央値",
+  "淀川水系鴨川・高野川（都道府県管理区間）_L2（想定最大規模）_浸水ランク": "0.5m以上3m未満",
+  "淀川水系天神川（都道府県管理区間）_L2（想定最大規模）_浸水ランク": null,
+  "淀川水系天神川（都道府県管理区間）_L2（想定最大規模）_浸水ランクコード": null,
+  "淀川水系天神川（都道府県管理区間）_L2（想定最大規模）_浸水深": null,
+  "淀川水系天神川（都道府県管理区間）_L2（想定最大規模）_浸水継続時間": null,
+  "淀川水系天神川・御室川・宇多川・西高瀬川（都道府県管理区間）_L2（想定最大規模）_浸水ランク": null,
+  "淀川水系天神川・御室川・宇多川・西高瀬川（都道府県管理区間）_L2（想定最大規模）_浸水ランクコード": null,
+  "淀川水系天神川・御室川・宇多川・西高瀬川（都道府県管理区間）_L2（想定最大規模）_浸水深": null,
+  "淀川水系天神川・御室川・宇多川・西高瀬川（都道府県管理区間）_L2（想定最大規模）_浸水継続時間": null,
+  "淀川水系鴨川上流・高野川上流（都道府県管理区間）_L2（想定最大規模）_浸水ランク": null,
+  "淀川水系鴨川上流・高野川上流（都道府県管理区間）_L2（想定最大規模）_浸水ランクコード": null,
+  "淀川水系鴨川上流・高野川上流（都道府県管理区間）_L2（想定最大規模）_浸水深": null,
+  "淀川水系鴨川上流・高野川上流（都道府県管理区間）_L2（想定最大規模）_浸水継続時間": null,
+  "_lod_type": null
+ },
+ "textured": true,
+ "tileset": "https://assets.cms.plateau.reearth.io/assets/04/eaac56-936e-49e2-a91b-0db31a6ed192/26100_kyoto-shi_city_2025_citygml_1_op_bldg_3dtiles_26104_nakagyo-ku_lod2/tileset.json",
+ "nv": 230,
+ "nt": 188,
+ "images": 1,
+ "textureBytes": 507720,
+ "bytes": 521552
+}
