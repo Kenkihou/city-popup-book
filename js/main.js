@@ -229,6 +229,7 @@ function recompute() {
   // ⑤ 箱：いちばん高い塊の範囲を入れる（手で変えていなければ）
   state.boxMapper = mapper;
   if (!state.boxEdited) fillBoxFromTallest();
+  if (state.boxSvg && view.mode === 'box') makeBox();
 }
 
 /* 設計図の欄：3D が「180°の箱」のときは箱の展開図、それ以外は折り紙建築の設計図を出す */
@@ -257,7 +258,8 @@ function boxSpecFromInputs() {
   return { x0: cx - W / 2, x1: cx + W / 2, d0: cd - D / 2, d1: cd + D / 2, H };
 }
 function makeBox() {
-  const b = state.building; const spec = boxSpecFromInputs();
+  const b = state.building; let spec = boxSpecFromInputs();
+  if (b && !spec) { fillBoxFromTallest(); spec = boxSpecFromInputs(); }
   if (!b || !spec) { alert('箱の大きさを入れてください'); return; }
   const book = BOOK_PAGES[$('bookPage').value], paper = PAPERS[$('boxPaper').value];
   const scaleDen = $('boxAutoScale').checked ? autoBoxScale(spec, paper) : +$('boxScale').value;
@@ -287,7 +289,8 @@ function makeBox() {
 }
 $('boxMake').addEventListener('click', makeBox);
 $('boxAuto').addEventListener('click', () => { fillBoxFromTallest(); makeBox(); });
-for (const id of ['boxW', 'boxD', 'boxH', 'boxCx', 'boxCd']) $(id).addEventListener('change', () => { state.boxEdited = true; });
+for (const id of ['boxW', 'boxD', 'boxH', 'boxCx', 'boxCd']) $(id).addEventListener('change', () => { state.boxEdited = true; if (state.boxSvg) makeBox(); });
+for (const id of ['bookPage', 'boxPaper', 'boxScale']) $(id).addEventListener('change', () => { if (state.boxSvg) makeBox(); });
 $('boxAutoScale').addEventListener('change', () => { $('boxScale').disabled = $('boxAutoScale').checked; });
 {
   const sel = $('bookPage');
@@ -309,7 +312,12 @@ $('autoScale').addEventListener('change', () => { $('scale').disabled = $('autoS
 }
 
 // ---- 3D 画面の操作 ----------------------------------------------------------
-document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => { view.setMode(r.value); showPattern(); }));
+document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => {
+  view.setMode(r.value);
+  // 「180°の箱」を選んだら、まだ箱が無ければその場で作る（⑤のボタンを押さなくてもよいように）
+  if (r.value === 'box' && !state.boxSvg && state.building) makeBox();
+  showPattern();
+}));
 $('showGhost').addEventListener('change', () => view.setGhost($('showGhost').checked));
 $('theta').addEventListener('input', () => { $('thetaVal').textContent = `${$('theta').value}°`; view.setTheta(+$('theta').value); });
 let anim = null;
