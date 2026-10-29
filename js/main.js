@@ -242,39 +242,69 @@ function showPattern() {
 const activeSvg = () => (view.mode === 'box' ? state.boxSvg : state.svg);
 const activeSuffix = () => (view.mode === 'box' ? `_box180_1-${state.boxScaleDen}` : `_1-${state.scaleDen}`);
 
-// ---- ⑤ 180° の箱（本体＋塔屋） ----------------------------------------------------
+// ---- ⑤ 180° の箱（箱の表） ------------------------------------------------------
 function fillBoxFromTallest() {
   if (!state.raster || !state.boxMapper) return;
-  const bs = autoBoxes(state.raster, state.boxMapper);
+  const bs = autoBoxes(state.raster, state.boxMapper, { mode: $('boxSplit').value });
   if (!bs.length) return;
-  state.autoBoxes = bs;
-  const body = bs[0], tw = bs[1];
-  $('bodyW').value = (body.x1 - body.x0).toFixed(1); $('bodyD').value = body.D.toFixed(1); $('bodyH').value = body.H.toFixed(1);
-  $('bodyCx').value = ((body.x0 + body.x1) / 2).toFixed(1); $('bodyCd').value = ((body.src.d0 + body.src.d1) / 2).toFixed(1);
-  $('towerOn').checked = !!tw;
-  if (tw) { $('towerW').value = (tw.x1 - tw.x0).toFixed(1); $('towerD').value = tw.D.toFixed(1); $('towerH').value = tw.H.toFixed(1); $('towerCx').value = ((tw.x0 + tw.x1) / 2).toFixed(1); }
-  else { for (const id of ['towerW', 'towerD', 'towerH', 'towerCx']) $(id).value = ''; }
+  state.boxes = bs.map((x) => ({ ...x, crease: 'auto' }));
+  // のど = 面積のいちばん大きい箱の実際の中心
+  const base = state.boxes.filter((x) => x.parent == null);
+  const big = base.reduce((m, x) => ((x.x1 - x.x0) * x.D > (m.x1 - m.x0) * m.D ? x : m), base[0]);
+  $('bodyCd').value = big.cd.toFixed(1);
   state.boxEdited = false;
+  renderBoxTable();
 }
-/* 入力から箱の並びを作る。画像を取る範囲（src）は、本体はのどを中心に、塔屋は高さ地図の実際の位置（自動で拾ったもの）を使う */
-function boxesFromInputs() {
-  const W = +$('bodyW').value, D = +$('bodyD').value, H = +$('bodyH').value, cx = +$('bodyCx').value, cd = +$('bodyCd').value;
-  if (!(W > 0 && D > 0 && H > 0)) return null;
-  const boxes = [{ name: '本体', x0: cx - W / 2, x1: cx + W / 2, D, H, parent: null, src: { x0: cx - W / 2, x1: cx + W / 2, d0: cd - D / 2, d1: cd + D / 2, h0: 0, h1: H } }];
-  if ($('towerOn').checked) {
-    const tW = +$('towerW').value, tD = +$('towerD').value, tH = +$('towerH').value, tcx = +$('towerCx').value;
-    if (tW > 0 && tD > 0 && tH > 0) {
-      const auto = state.autoBoxes && state.autoBoxes[1];
-      const sd = auto ? (auto.src.d0 + auto.src.d1) / 2 : cd;
-      boxes.push({ name: '塔屋', x0: tcx - tW / 2, x1: tcx + tW / 2, D: Math.min(tD, D), H: tH, parent: 0, src: { x0: tcx - tW / 2, x1: tcx + tW / 2, d0: sd - tD / 2, d1: sd + tD / 2, h0: H, h1: H + tH } });
-    }
-  }
-  return boxes;
+function renderBoxTable() {
+  const bs = state.boxes || [];
+  const names = bs.map((x, i) => `<option value="${i}">${x.name}</option>`).join('');
+  const rows = bs.map((x, i) => `<tr data-i="${i}">
+    <td><input type="text" data-k="name" value="${x.name}"></td>
+    <td><input type="number" step="0.5" data-k="W" value="${(x.x1 - x.x0).toFixed(1)}"></td>
+    <td><input type="number" step="0.5" data-k="D" value="${x.D.toFixed(1)}"></td>
+    <td><input type="number" step="0.5" data-k="H" value="${x.H.toFixed(1)}"></td>
+    <td><input type="number" step="0.5" data-k="cx" value="${((x.x0 + x.x1) / 2).toFixed(1)}"></td>
+    <td><select data-k="parent"><option value="">ページ</option>${names.replace(`value="${i}"`, `value="${i}" disabled`)}</select></td>
+    <td><select data-k="crease"><option value="auto">自動</option><option value="in">内</option><option value="left">左へ</option><option value="right">右へ</option></select></td>
+    <td><button data-k="del" title="この箱を消す">×</button></td></tr>`).join('');
+  $('boxTable').innerHTML = `<table class="list box"><thead><tr><th>名前</th><th>幅 m</th><th>奥行 m</th><th>高さ m</th><th>中心 x</th><th>載せる先</th><th>マチ</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="row"><button id="boxAdd">箱を足す</button></div>`;
+  bs.forEach((x, i) => { const tr = $('boxTable').querySelector(`tr[data-i="${i}"]`); tr.querySelector('[data-k=parent]').value = x.parent == null ? '' : String(x.parent); tr.querySelector('[data-k=crease]').value = x.crease || 'auto'; });
+  $('boxTable').querySelectorAll('input,select').forEach((el) => el.addEventListener('change', () => { readBoxTable(); state.boxEdited = true; if (state.boxSvg) makeBox(); }));
+  $('boxTable').querySelectorAll('button[data-k=del]').forEach((btn) => btn.addEventListener('click', () => {
+    const i = +btn.closest('tr').dataset.i;
+    state.boxes = state.boxes.filter((_, k) => k !== i).map((x) => ({ ...x, parent: x.parent == null ? null : x.parent === i ? null : x.parent > i ? x.parent - 1 : x.parent }));
+    renderBoxTable(); if (state.boxSvg) makeBox();
+  }));
+  $('boxAdd').addEventListener('click', () => {
+    const last = state.boxes[state.boxes.length - 1];
+    state.boxes.push({ name: `箱${state.boxes.length + 1}`, x0: last ? last.x1 : 0, x1: (last ? last.x1 : 0) + 10, D: 10, H: 10, parent: null, cd: +$('bodyCd').value, crease: 'auto', src: null });
+    renderBoxTable(); if (state.boxSvg) makeBox();
+  });
+}
+/* 表 → state.boxes（幅・中心から x0/x1 を戻す。画像を取る範囲 src は実際の位置 cd を中心に、高さは親の上から） */
+function readBoxTable() {
+  const rows = [...$('boxTable').querySelectorAll('tbody tr')];
+  const out = rows.map((tr, i) => {
+    const v = (k) => tr.querySelector(`[data-k=${k}]`).value;
+    const prev = state.boxes[i] || {};
+    const W = +v('W'), D = +v('D'), H = +v('H'), cx = +v('cx');
+    const parent = v('parent') === '' ? null : +v('parent');
+    return { ...prev, name: v('name') || `箱${i + 1}`, x0: cx - W / 2, x1: cx + W / 2, D, H, parent, crease: v('crease'), cd: prev.cd ?? +$('bodyCd').value };
+  });
+  // src（画像の範囲）：x は箱の範囲、d は実際の中心 cd を中心に奥行ぶん、高さは親の上端から
+  const baseH = (k, depth = 0) => { const x = out[k]; return x.parent == null || depth > 8 ? 0 : baseH(x.parent, depth + 1) + out[x.parent].H; };
+  out.forEach((x, k) => { const h0 = baseH(k); x.src = { x0: x.x0, x1: x.x1, d0: x.cd - x.D / 2, d1: x.cd + x.D / 2, h0, h1: h0 + x.H }; });
+  state.boxes = out;
+  return out;
 }
 function makeBox() {
-  const b = state.building; let boxes = boxesFromInputs();
-  if (b && !boxes) { fillBoxFromTallest(); boxes = boxesFromInputs(); }
-  if (!b || !boxes) { alert('本体の大きさを入れてください'); return; }
+  const b = state.building;
+  if (b && !(state.boxes && state.boxes.length)) fillBoxFromTallest();
+  const boxes = state.boxes && state.boxes.length ? readBoxTable() : null;
+  if (!b || !boxes || !boxes.length) { alert('箱がありません。「自動で決め直す」を押してください'); return; }
+  const bad = boxes.find((x) => !(x.x1 - x.x0 > 0 && x.D > 0 && x.H > 0));
+  if (bad) { alert(`「${bad.name}」の寸法を入れてください`); return; }
   const book = BOOK_PAGES[$('bookPage').value], paper = PAPERS[$('boxPaper').value];
   const scaleDen = $('boxAutoScale').checked ? autoBoxesScale(boxes, paper, book) : +$('boxScale').value;
   state.boxScaleDen = scaleDen;
@@ -293,19 +323,19 @@ function makeBox() {
   const m = scaleDen / 1000;
   const gutterD = +$('bodyCd').value;
   view.setBox(boxes, { width: book.width * m, depth: book.depth * m }, prints, gutterD);
-  state.boxes = boxes;
   state.boxSvg = renderBoxesNet(boxes, { paper, scaleDen, book, prints: hrefs, title: `180° の箱　${b.meta.name || ''}（${boxes.map((x) => x.name).join('＋')}）`, meta: b.meta });
-  state.boxInfo = `${paper.name}　1/${scaleDen}　${boxes.map((x) => `${x.name} ${(x.x1 - x.x0).toFixed(0)}×${x.D.toFixed(0)}×${x.H.toFixed(0)}m`).join('　')}`;
+  state.boxInfo = `${paper.name}　1/${scaleDen}　箱 ${boxes.length} 個`;
   const mm = (v) => (v * 1000 / scaleDen).toFixed(0);
-  $('boxInfo').innerHTML = `縮尺 1/${scaleDen}　` + boxes.map((x) => `${x.name} ${mm(x.x1 - x.x0)}×${mm(x.D)}×${mm(x.H)}mm`).join('　') + `　たたんだ全体 ${chk.foldedMm.toFixed(0)}mm（ページ奥行 ${book.depth}mm）\n` +
-    (chk.issues.length ? chk.issues.map((t) => `<span class="${t.includes('外折り') ? 'hint' : 'warn'}">${t}</span>`).join('\n') : '<span class="ok">本に収まります</span>');
+  $('boxInfo').innerHTML = `縮尺 1/${scaleDen}　` + boxes.map((x) => `${x.name} ${mm(x.x1 - x.x0)}×${mm(x.D)}×${mm(x.H)}mm`).join('　') + `\nたたんだ全体 奥行 ${chk.foldedMm.toFixed(0)}mm（ページ ${book.depth}mm）・幅 ${chk.widthMm.toFixed(0)}mm（ページ ${book.width}mm）\n` +
+    (chk.issues.length ? chk.issues.map((t) => `<span class="${t.includes('逃がします') ? 'hint' : 'warn'}">${t}</span>`).join('\n') : '<span class="ok">本に収まります</span>');
   document.querySelector('input[name=mode][value=box]').checked = true;
   view.setMode('box');
   showPattern();
 }
 $('boxMake').addEventListener('click', makeBox);
 $('boxAuto').addEventListener('click', () => { fillBoxFromTallest(); makeBox(); });
-for (const id of ['bodyW', 'bodyD', 'bodyH', 'bodyCx', 'bodyCd', 'towerOn', 'towerW', 'towerD', 'towerH', 'towerCx']) $(id).addEventListener('change', () => { state.boxEdited = true; if (state.boxSvg) makeBox(); });
+$('bodyCd').addEventListener('change', () => { state.boxEdited = true; if (state.boxSvg) makeBox(); });
+$('boxSplit').addEventListener('change', () => { fillBoxFromTallest(); if (state.boxSvg) makeBox(); });
 for (const id of ['bookPage', 'boxPaper', 'boxScale']) $(id).addEventListener('change', () => { if (state.boxSvg) makeBox(); });
 $('boxAutoScale').addEventListener('change', () => { $('boxScale').disabled = $('boxAutoScale').checked; if (state.boxSvg) makeBox(); });
 {

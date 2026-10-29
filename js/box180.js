@@ -25,38 +25,125 @@ export const BOOK_PAGES = {
   A3: { name: 'A3 判の本（見開き A2 横）', width: 420, depth: 297 },
 };
 
-/* 高さ地図から「本体＋塔屋」の 2 段を自動で作る。
-   本体 = 建物の外形の矩形（x は全幅、奥行は全奥行）× 面積のいちばん多い高さ。塔屋 = 最高の塊の矩形 × (最高 − 本体)。
-   mapper: popup.popupMapper の戻り（(u, v) → [x, d]）。gutterD … のどの d 座標（省略時は本体の奥行の中心） */
-export function autoBoxes(raster, mapper, { tol = 0 } = {}) {
+/* 高さ地図から箱の並びを自動で作る。
+   mode 'single'  … 本体（外形の矩形 × 面積最多の高さ）＋塔屋（最高の塊）
+   mode 'columns' … のどに沿う方向（x）に列を走査し、建物の奥行の範囲（d の最小〜最大）が同じ列をまとめて 1 つの箱にする（翼・中央棟が分かれる）。
+                     各箱の高さは面積最多の高さ。低い部分（面積最多の高さの lowFrac 未満。庇・玄関など）は範囲に入れない。
+                     塔屋（最高の塊）は、その中心を含む箱の屋根に載せる。
+   mapper: popup.popupMapper の戻り。戻り: [{ name, x0, x1, D, H, parent, cd (実際の奥行の中心), src }] */
+export function autoBoxes(raster, mapper, { tol = 0, mode = 'columns', lowFrac = 0.4, minCols = 3, tolCells = 1 } = {}) {
   const { nu, nv, heights: H, hmax, cell, step } = raster;
-  let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
-  const count = new Map();
-  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
-    const h = H[j * nu + i]; if (h <= 0) continue;
-    i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j);
-    count.set(h, (count.get(h) || 0) + 1);
+  // 升目 (i, j) → 絵本系の列番号 ix（x 方向）と奥行番号 jd（d 方向）。mapper は向きによって u/v を入れ替えるので、升の中心で見分ける
+  const c00 = mapper(0, 0), c10 = mapper(cell, 0);
+  const xIsU = Math.abs(c10[0] - c00[0]) > 1e-9;   // u が x に対応するか
+  const X = xIsU ? nu : nv, Dn = xIsU ? nv : nu;
+  const xr = (ix) => { const c1 = xIsU ? mapper(ix * cell, 0)[0] : mapper(0, ix * cell)[0], c2 = xIsU ? mapper((ix + 1) * cell, 0)[0] : mapper(0, (ix + 1) * cell)[0]; return [Math.min(c1, c2), Math.max(c1, c2)]; };
+  const dr = (jd) => { const c1 = xIsU ? mapper(0, jd * cell)[1] : mapper(jd * cell, 0)[1], c2 = xIsU ? mapper(0, (jd + 1) * cell)[1] : mapper((jd + 1) * cell, 0)[1]; return [Math.min(c1, c2), Math.max(c1, c2)]; };
+  const hAt = (ix, jd) => (xIsU ? H[jd * nu + ix] : H[ix * nu + jd]);
+  // 列ごとの x 範囲は mapper の向きで増減が逆になることがあるので、列番号を x の昇順に並べ替える
+  const cols = Array.from({ length: X }, (_, ix) => ix).sort((p, q) => xr(p)[0] - xr(q)[0]);
+  const count = new Map(); let occupied = 0;
+  for (let ix = 0; ix < X; ix++) for (let jd = 0; jd < Dn; jd++) { const h = hAt(ix, jd); if (h > 0) { count.set(h, (count.get(h) || 0) + 1); occupied++; } }
+  if (!occupied) return [];
+  const modeOf = (m) => { let best = -1, hb = 0; for (const [h, n] of m) if (n > best || (n === best && h > hb)) { best = n; hb = h; } return hb; };
+  const allMode = modeOf(count);
+  const low = allMode * lowFrac;
+  // 列ごとの奥行の範囲（低い部分を除く）
+  const ext = cols.map((ix) => { let j0 = Infinity, j1 = -Infinity; for (let jd = 0; jd < Dn; jd++) if (hAt(ix, jd) >= low) { j0 = Math.min(j0, jd); j1 = Math.max(j1, jd); } return Number.isFinite(j0) ? [j0, j1] : null; });
+  // 列をまとめる
+  let runs = [];
+  if (mode === 'single') {
+    let j0 = Infinity, j1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+    ext.forEach((e, k) => { if (!e) return; j0 = Math.min(j0, e[0]); j1 = Math.max(j1, e[1]); c0 = Math.min(c0, k); c1 = Math.max(c1, k); });
+    runs.push({ k0: c0, k1: c1, j0, j1 });
+  } else {
+    // 奥行の範囲が同じ列をまとめる（両端とも tolCells 升以内のずれは同じとみなし、範囲は多数決＝最初の列のもの）
+    let k = 0;
+    const same = (e, f) => e && f && Math.abs(e[0] - f[0]) <= tolCells && Math.abs(e[1] - f[1]) <= tolCells;
+    while (k < X) {
+      if (!ext[k]) { k++; continue; }
+      let kk = k; while (kk + 1 < X && same(ext[kk + 1], ext[k])) kk++;
+      // 範囲は、この列の集まりで最も多い (j0, j1)
+      const tally = new Map(); for (let q = k; q <= kk; q++) { const key = ext[q].join(','); tally.set(key, (tally.get(key) || 0) + 1); }
+      const bestKey = [...tally.entries()].sort((u, v) => v[1] - u[1])[0][0].split(',').map(Number);
+      runs.push({ k0: k, k1: kk, j0: bestKey[0], j1: bestKey[1] });
+      k = kk + 1;
+    }
+    // 隣どうしの範囲が tolCells 以内なら 1 つにまとめる（広い方の範囲にする）。変化が無くなるまで
+    for (let changed = true; changed;) {
+      changed = false;
+      for (let r = 0; r + 1 < runs.length; r++) {
+        const A = runs[r], B = runs[r + 1];
+        if (!same([A.j0, A.j1], [B.j0, B.j1])) continue;
+        const wide = (A.k1 - A.k0) >= (B.k1 - B.k0) ? A : B;
+        runs.splice(r, 2, { k0: A.k0, k1: B.k1, j0: wide.j0, j1: wide.j1 }); changed = true; break;
+      }
+    }
+    // 細い列の集まりは、隣の広い方に合わせる（範囲はそのまま隣の範囲にする）
+    for (let r = 0; r < runs.length; r++) {
+      const w = runs[r].k1 - runs[r].k0 + 1;
+      if (w >= minCols || runs.length === 1) continue;
+      const L = runs[r - 1], R = runs[r + 1];
+      const tgt = (L && R) ? ((L.k1 - L.k0) >= (R.k1 - R.k0) ? L : R) : (L || R);
+      if (!tgt) continue;
+      if (tgt === L) L.k1 = runs[r].k1; else R.k0 = runs[r].k0;
+      runs.splice(r, 1); r--;
+    }
   }
-  if (!Number.isFinite(i0)) return [];
-  let bodyH = 0, best = -1;
-  for (const [h, n] of count) if (n > best || (n === best && h > bodyH)) { best = n; bodyH = h; }
-  const rect = (ia, ib, ja, jb) => {
-    const c1 = mapper(ia * cell, ja * cell), c2 = mapper((ib + 1) * cell, (jb + 1) * cell);
-    return { x0: Math.min(c1[0], c2[0]), x1: Math.max(c1[0], c2[0]), d0: Math.min(c1[1], c2[1]), d1: Math.max(c1[1], c2[1]) };
-  };
-  const br = rect(i0, i1, j0, j1);
-  const boxes = [{ name: '本体', x0: br.x0, x1: br.x1, D: br.d1 - br.d0, H: bodyH, parent: null, src: { ...br, h0: 0, h1: bodyH } }];
-  if (hmax - bodyH >= step) {
-    let ti0 = Infinity, ti1 = -Infinity, tj0 = Infinity, tj1 = -Infinity;
-    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) if (H[j * nu + i] >= hmax - tol) { ti0 = Math.min(ti0, i); ti1 = Math.max(ti1, i); tj0 = Math.min(tj0, j); tj1 = Math.max(tj1, j); }
-    const tr = rect(ti0, ti1, tj0, tj1);
-    boxes.push({ name: '塔屋', x0: tr.x0, x1: tr.x1, D: Math.min(tr.d1 - tr.d0, br.d1 - br.d0), H: hmax - bodyH, parent: 0, src: { ...tr, h0: bodyH, h1: hmax } });
+  // 箱にする（x の範囲は列番号 → 実座標、奥行は j0..j1）
+  const boxes = [];
+  const drange = (j0, j1) => { const A = dr(j0), B = dr(j1); return [Math.min(A[0], B[0]), Math.max(A[1], B[1])]; };
+  for (const r of runs) {
+    const x0 = xr(cols[r.k0])[0], x1 = xr(cols[r.k1])[1];
+    const [d0, d1] = drange(r.j0, r.j1);
+    const cnt = new Map();
+    for (let k = r.k0; k <= r.k1; k++) for (let jd = r.j0; jd <= r.j1; jd++) { const h = hAt(cols[k], jd); if (h >= low) cnt.set(h, (cnt.get(h) || 0) + 1); }
+    const h = modeOf(cnt) || allMode;
+    boxes.push({ name: '', x0, x1, D: d1 - d0, H: h, parent: null, cd: (d0 + d1) / 2, src: { x0, x1, d0, d1, h0: 0, h1: h } });
+  }
+  // 名前：x の順に「箱1…」。1 つなら「本体」
+  if (boxes.length === 1) boxes[0].name = '本体'; else boxes.forEach((bx, i) => { bx.name = `箱${i + 1}`; });
+  // 細長い箱（幅 < 奥行）は側壁の折り目を片側へ逃がす。両隣が詰まっていて逃がせないときは、奥行を幅まで縮めて内折りにする
+  boxes.forEach((bx, i) => {
+    const W = bx.x1 - bx.x0; if (W >= bx.D) { bx.crease = 'auto'; return; }
+    const a = bx.D / 2;
+    const blockedL = boxes.some((o, j) => j !== i && o.x1 > bx.x0 - a - 1e-6 && o.x1 <= bx.x0 + 1e-6);
+    const blockedR = boxes.some((o, j) => j !== i && o.x0 < bx.x1 + a + 1e-6 && o.x0 >= bx.x1 - 1e-6);
+    if (!blockedL) bx.crease = 'left';
+    else if (!blockedR) bx.crease = 'right';
+    else { bx.D = W; bx.crease = 'in'; bx.clamped = true; }
+  });
+  // 塔屋
+  let ti0 = Infinity, ti1 = -Infinity, tj0 = Infinity, tj1 = -Infinity;
+  for (let ix = 0; ix < X; ix++) for (let jd = 0; jd < Dn; jd++) if (hAt(ix, jd) >= hmax - tol) { ti0 = Math.min(ti0, ix); ti1 = Math.max(ti1, ix); tj0 = Math.min(tj0, jd); tj1 = Math.max(tj1, jd); }
+  if (Number.isFinite(ti0)) {
+    const xa = Math.min(xr(ti0)[0], xr(ti1)[0]), xb = Math.max(xr(ti0)[1], xr(ti1)[1]);
+    const [d0, d1] = drange(tj0, tj1);
+    const cx = (xa + xb) / 2;
+    const pi = boxes.findIndex((bx) => bx.x0 - 1e-6 <= cx && cx <= bx.x1 + 1e-6);
+    if (pi >= 0 && hmax - boxes[pi].H >= step) {
+      const pb = boxes[pi];
+      boxes.push({ name: '塔屋', x0: Math.max(xa, pb.x0), x1: Math.min(xb, pb.x1), D: Math.min(d1 - d0, pb.D), H: hmax - pb.H, parent: pi, cd: (d0 + d1) / 2, src: { x0: xa, x1: xb, d0, d1, h0: pb.H, h1: hmax } });
+    }
   }
   return boxes;
 }
 
 export const dimsOf = (b) => ({ W: b.x1 - b.x0, a: b.D / 2, H: b.H });
 export const creaseInward = (b) => b.x1 - b.x0 >= b.D;
+/* 側壁の折り目の逃がし方。'in' = 左右とも内側（幅 ≥ 奥行のとき。V が交差しない）。
+   幅 < 奥行のときは内側に折ると左右の V が交差してしまうので、両方とも同じ向き（'left' = −x へ、'right' = +x へ）に逃がす。
+   2 枚の V は平行に動くので互いにぶつからず、はみ出すのは片側だけ（建物の外側へ向ける）。b.crease が指定されていればそれ */
+export function creaseModeOf(b, boxes = []) {
+  if (b.crease && b.crease !== 'auto') return b.crease;
+  if (creaseInward(b)) return 'in';
+  const sib = boxes.filter((o) => o !== b && o.parent === b.parent);
+  if (!sib.length) return 'left';
+  const mean = sib.reduce((t, o) => t + (o.x0 + o.x1) / 2, 0) / sib.length;
+  return (b.x0 + b.x1) / 2 <= mean ? 'left' : 'right';
+}
+/* 側壁（左 = x0 の面、右 = x1 の面）の折り目が箱の内側に入るか */
+export const sideFoldsInward = (mode, left) => (mode === 'in' ? true : mode === 'left' ? !left : left);
 
 /* 箱の並びの 3D（開き角 phiDeg、180 = 平ら）。手前のページを水平に固定し、奥のページが背景のように起き上がる向き。
    gutterD … のどの d 座標。book: { width, depth } m。
@@ -72,8 +159,8 @@ export function boxesAt(boxes, phiDeg, book, gutterD = 0) {
     const { W, a, H } = dimsOf(b);
     const base = b.parent == null ? 0 : (ridgeY[b.parent] ?? 0);
     const yf = b.parent == null ? base + a * ca : base - a * ca;   // V（ページ）に乗るか Λ（親の屋根）に乗るか
-    const inward = creaseInward(b);
-    const cx = (x, sideSign) => x + (inward ? -sideSign : sideSign) * a * ca;
+    const mode = creaseModeOf(b, boxes);
+    const cx = (x, sideSign) => x + (mode === 'in' ? -sideSign : mode === 'left' ? -1 : 1) * a * ca;   // sideSign: 左 = -1, 右 = +1
     const yr = yf + H + a * ca; ridgeY[k] = yr;
     const faces = {
       front: [P(b.x0, yf, a * sa), P(b.x1, yf, a * sa), P(b.x1, yf + H, a * sa), P(b.x0, yf + H, a * sa)],
@@ -86,7 +173,7 @@ export function boxesAt(boxes, phiDeg, book, gutterD = 0) {
       rightB: [P(cx(b.x1, +1), yf, 0), P(b.x1, yf, -a * sa), P(b.x1, yf + H, -a * sa), P(cx(b.x1, +1), yf + H, 0)],
     };
     const glue = [[P(b.x0, yf, -a * sa), P(b.x1, yf, -a * sa)], [P(b.x0, yf, a * sa), P(b.x1, yf, a * sa)]];
-    items.push({ box: b, faces, glue, inward, yFoot: yf, yRidge: yr, W, a, H });
+    items.push({ box: b, faces, glue, mode, yFoot: yf, yRidge: yr, W, a, H });
   });
   const xs = boxes.length ? boxes.map((b) => (b.x0 + b.x1) / 2) : [0];
   const xm = xs.reduce((s, v) => s + v, 0) / xs.length, pw = book.width, pd = book.depth;
@@ -130,11 +217,22 @@ export function checkBoxes(boxes, book, scaleDen, margin = 8) {
   const r = boxesAt(boxes, 0.5, { width: 1, depth: 1 });
   const folded = r.foldedTop;
   if (mm(folded) + margin > book.depth) issues.push(`たたんだ全体の長さ ${mm(folded).toFixed(0)}mm がページの奥行 ${book.depth}mm を超えます。縮尺を小さく（分母を大きく）するか、大きな本にしてください`);
-  // たたんだときの幅：外折りの側壁は箱の外に a ずつ出る
-  const wmax = Math.max(0, ...boxes.map((b) => (b.x1 - b.x0) + (creaseInward(b) ? 0 : b.D)));
-  if (mm(wmax) + margin * 2 > book.width) issues.push(`たたんだ箱の幅 ${mm(wmax).toFixed(0)}mm（外折りの側壁を含む）がページの幅 ${book.width}mm を超えます`);
+  // たたんだときの x の範囲：片側逃がしの箱は、折り目の側に a はみ出す（内側に入る方も a > W なら反対側に出る）
+  const ext = boxes.map((b) => { const m = creaseModeOf(b, boxes), a = b.D / 2; if (m === 'in') return [b.x0, b.x1]; return m === 'left' ? [Math.min(b.x0 - a, b.x1 - a), b.x1] : [b.x0, Math.max(b.x1 + a, b.x0 + a)]; });
+  const xmin = Math.min(...ext.map((e) => e[0])), xmax = Math.max(...ext.map((e) => e[1]));
+  if (mm(xmax - xmin) + margin * 2 > book.width) issues.push(`たたんだ全体の幅 ${mm(xmax - xmin).toFixed(0)}mm（逃がした側壁を含む）がページの幅 ${book.width}mm を超えます`);
   boxes.forEach((b, k) => {
-    if (!creaseInward(b)) issues.push(`「${b.name}」は幅 ${(b.x1 - b.x0).toFixed(1)}m < 奥行 ${b.D.toFixed(1)}m なので側壁の折り目は外折り（閉じたとき折り目が箱の外に出ます）`);
+    const m = creaseModeOf(b, boxes);
+    if (m !== 'in') issues.push(`「${b.name}」は幅 ${(b.x1 - b.x0).toFixed(1)}m < 奥行 ${b.D.toFixed(1)}m なので、側壁の折り目を両方とも${m === 'left' ? '−x（左）' : '+x（右）'}へ逃がします（開閉の途中で片側に ${(b.D / 2).toFixed(1)}m まで張り出します）`);
+    // 逃がした側に、奥行の範囲が重なる兄弟の箱があるとぶつかる
+    if (m !== 'in') {
+      const a = b.D / 2;
+      for (const o of boxes) {
+        if (o === b || o.parent !== b.parent) continue;
+        const near = m === 'left' ? (o.x1 > b.x0 - a - 1e-6 && o.x1 <= b.x0 + 1e-6) : (o.x0 < b.x1 + a + 1e-6 && o.x0 >= b.x1 - 1e-6);
+        if (near) issues.push(`「${b.name}」の逃がした側壁が「${o.name}」にぶつかります（開閉の途中）。箱の分け方か、逃がす向き（crease）を変えてください`);
+      }
+    }
     if (b.parent != null) {
       const p = boxes[b.parent];
       if (!p) issues.push(`「${b.name}」の親がありません`);
@@ -144,7 +242,8 @@ export function checkBoxes(boxes, book, scaleDen, margin = 8) {
       }
     }
   });
-  return { ok: !issues.some((s) => !s.includes('外折り')), issues, foldedMm: mm(folded), widthMm: mm(wmax) };
+  const fits = !issues.some((s) => s.includes('超えます'));
+  return { ok: !issues.some((s) => !s.includes('逃がします')), fits, issues, foldedMm: mm(folded), widthMm: mm(xmax - xmin) };
 }
 
 /* 展開図の部品。箱 1 つにつき、本体（背面・屋根 2 枚・正面＋のりしろ 2 つ）と側壁 2 枚（両端にのりしろ）。
@@ -179,7 +278,7 @@ export function autoBoxesScale(boxes, paper, book = null, tabMm = 8) {
   const nice = [50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 3000];
   for (const n of nice) {
     if (!pack(pieces(boxes, n, tabMm), paper, 8, 4, 14)) continue;
-    if (book && !checkBoxes(boxes, book, n).ok) continue;
+    if (book && !checkBoxes(boxes, book, n).fits) continue;
     return n;
   }
   return 3000;
@@ -233,7 +332,7 @@ export function renderBoxesNet(boxes, opts) {
       const dc = (s.d0 + s.d1) / 2;
       const { W, a, H } = dimsOf(b);
       const Wm = mm(W), am = mm(a), Hm = mm(H);
-      const inward = creaseInward(b);
+      const cmode = creaseModeOf(b, boxes);
       if (piece.kind === 'main') {
         const X0 = x, yBack = y + t, yRoofB = yBack + Hm, yRidge = yRoofB + am, yFront = yRidge + am, yBottom = yFront + Hm;
         paste({ x: X0, y: yBack, w: Wm, h: Hm, key: 'back', hA: -s.x0, hB: -s.x1, vT: s.h0, vB: s.h1 });
@@ -266,8 +365,9 @@ export function renderBoxesNet(boxes, opts) {
         const o = [[x + k2, Y], [X0 + 2 * am + t - k2, Y], [X0 + 2 * am + t, Y + k2], [X0 + 2 * am + t, Y + Hm - k2], [X0 + 2 * am + t - k2, Y + Hm], [x + k2, Y + Hm], [x, Y + Hm - k2], [x, Y + k2]];
         out.push(`<polygon points="${o.map(([px, py]) => `${f2(px)},${f2(py)}`).join(' ')}" fill="none" ${ST.cut}/>`);
         line(X0, Y, X0, Y + Hm, 'valley'); line(X0 + 2 * am, Y, X0 + 2 * am, Y + Hm, 'valley');
-        line(X0 + am, Y, X0 + am, Y + Hm, inward ? 'valley' : 'mountain');
-        label(X0 + am, Y + Hm / 2, `${b.name}：${left ? '左' : '右'}側壁（中央で${inward ? '内' : '外'}折り）`);
+        const inw = sideFoldsInward(cmode, left);
+        line(X0 + am, Y, X0 + am, Y + Hm, inw ? 'valley' : 'mountain');
+        label(X0 + am, Y + Hm / 2, `${b.name}：${left ? '左' : '右'}側壁（中央で${inw ? '内' : '外'}折り）`);
         label(x + t / 2, Y + Hm / 2 - 3, left ? '背面へ' : '正面へ', 2); label(X0 + 2 * am + t / 2, Y + Hm / 2 - 3, left ? '正面へ' : '背面へ', 2);
       }
     }

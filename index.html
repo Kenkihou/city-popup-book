@@ -44,6 +44,10 @@
   table.list th, table.list td { border-bottom:1px solid #eee; padding:3px 4px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
   table.list tr.sel td { background:#e8f0ff; }
   table.list tbody tr { cursor:pointer; }
+  table.box input[type=number] { width:58px; padding:2px 4px; }
+  table.box input[type=text] { width:56px; }
+  table.box select { padding:2px; }
+  table.box td, table.box th { padding:2px 3px; white-space:nowrap; font-size:12px; border-bottom:1px solid #eee; }
   table.list tbody tr:hover td { background:#f3f6fc; }
   .sides { display:grid; grid-template-columns: repeat(5, 1fr); gap:4px; }
   .sides button { padding:5px 2px; font-size:12px; }
@@ -155,15 +159,16 @@
       <h2><span class="num">5</span>180° の箱（側面を閉じる・箱を積む）</h2>
       <div class="hint">本を平らに開くと、のどをまたいで側面の閉じた箱が立つ方式。側壁は中央の縦折りでたたまれ、屋根は棟折りで切妻になります。
         屋根の 2 枚は閉じるにつれてページと同じ角度の山形になるので、その上に塔屋の箱を積めます。どの箱も奥行の中心はのどの真上です
-        （③の「背の側」で x の向きが変わります。京都市役所は「西を背に」にすると、のどが南北に通って塔屋が正面の位置に残ります）。</div>
-      <div class="row"><label>本体</label>幅 <input type="number" id="bodyW" step="0.5" style="width:62px">　奥行 <input type="number" id="bodyD" step="0.5" style="width:62px">　高さ <input type="number" id="bodyH" step="0.5" style="width:62px"> m</div>
-      <div class="row"><label>本体の中心</label>x <input type="number" id="bodyCx" step="0.5" style="width:62px">　奥行（のどの位置） <input type="number" id="bodyCd" step="0.5" style="width:62px"> m</div>
-      <div class="row"><label><input type="checkbox" id="towerOn" checked> 塔屋</label>幅 <input type="number" id="towerW" step="0.5" style="width:62px">　奥行 <input type="number" id="towerD" step="0.5" style="width:62px">　高さ <input type="number" id="towerH" step="0.5" style="width:62px"> m（本体の屋根から上）</div>
-      <div class="row"><label>塔屋の中心</label>x <input type="number" id="towerCx" step="0.5" style="width:62px"> m　<button id="boxAuto" title="高さ地図から本体と塔屋を自動で決め直す">自動で決め直す</button></div>
+        （③の「背の側」で x の向きが変わります。「列ごとに分ける」は、のどに沿って建物を走査し、奥行の範囲が同じ列をまとめて箱にします。京都市役所は「南/北を背に」で 翼・中央棟・翼＋塔屋 の 4 箱になります）。</div>
+      <div class="row"><label>分け方</label><select id="boxSplit"><option value="columns">列ごとに分ける（翼・中央棟＋塔屋）</option><option value="single">1 つの箱＋塔屋</option></select>
+        <button id="boxAuto" title="高さ地図から決め直す">自動で決め直す</button></div>
+      <div class="row"><label>のど（奥行）</label><input type="number" id="bodyCd" step="0.5" style="width:70px"> m　<span class="hint">どの箱も奥行の中心をここに合わせます</span></div>
+      <div id="boxTable"></div>
+      <div class="hint">マチ＝側壁の折り目の逃がし方。幅 ≥ 奥行なら左右とも内側、細長い箱は両方を同じ向き（建物の外側）へ逃がすと V が交差せず隣にも入り込みません。</div>
       <div class="row"><label>本の大きさ</label><select id="bookPage"></select></div>
       <div class="row"><label>展開図の紙</label><select id="boxPaper"></select>　<label style="min-width:0"><input type="checkbox" id="boxAutoScale" checked> 縮尺 自動</label> 1/<input type="number" id="boxScale" value="300" min="50" max="3000" step="50" disabled></div>
       <div class="row"><button id="boxMake" class="primary">箱を作り直す（3D と展開図）</button>　<span class="hint">3D の「180°の箱」を選ぶと自動で作ります</span></div>
-      <div class="readout" id="boxInfo">（建物を読み込むと、本体と塔屋の大きさが入ります）</div>
+      <div class="readout" id="boxInfo">（建物を読み込むと、箱の表が入ります）</div>
     </section>
     <details><summary>使い方・しくみ</summary>
       <div class="hint">
