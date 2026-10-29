@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toBlocks } from './simplify.js';
+import { boxAt, FACE_VIEW } from './box180.js';
 
 const PLAIN = 0xd9cfbf;
 
@@ -25,7 +26,7 @@ export class View3D {
     const sun = new THREE.DirectionalLight(0xffffff, 1.3); sun.position.set(-60, 120, 90); this.scene.add(sun);
     const sun2 = new THREE.DirectionalLight(0xffffff, 0.5); sun2.position.set(80, 40, -60); this.scene.add(sun2);
     const fill = new THREE.DirectionalLight(0xffffff, 0.4); fill.position.set(20, -30, 120); this.scene.add(fill);
-    this.groups = { original: new THREE.Group(), blocks: new THREE.Group(), popup: new THREE.Group(), ghost: new THREE.Group() };
+    this.groups = { original: new THREE.Group(), blocks: new THREE.Group(), popup: new THREE.Group(), box: new THREE.Group(), ghost: new THREE.Group() };
     for (const g of Object.values(this.groups)) this.scene.add(g);
     this.mode = 'popup';
     this.theta = Math.PI / 2;
@@ -57,6 +58,7 @@ export class View3D {
     this.groups.original.visible = this.mode === 'original';
     this.groups.blocks.visible = this.mode === 'blocks';
     this.groups.popup.visible = this.mode === 'popup';
+    this.groups.box.visible = this.mode === 'box';
     this.groups.ghost.visible = this.mode !== 'original' && this.showGhost;
   }
   clear(g) { while (g.children.length) { const c = g.children.pop(); c.geometry?.dispose?.(); } }
@@ -112,22 +114,24 @@ export class View3D {
   }
 
   /* 元の建物の正射投影を描く（テクスチャは unlit＝色そのまま。建物の無いところは透明）。
-     kind 'front' … 手前（台紙側）から背を見る正面図。x 0〜widthM、高さ a0〜a1
-     kind 'top'   … 真上から。x 0〜widthM、奥行 a0〜a1（画像の上端が背側 = a0）
-     戻り: { canvas, x0, x1, a0, a1, w, h } */
+     kind: 'front'（手前から背を見る。横 = x、縦 = 高さ）／'back'（奥から。横 = -x）／'left'（x の小さい側から。横 = d）／'right'（横 = -d）／'top'（真上。横 = x、縦 = -d：画像の上端が背側）
+     戻り: { canvas, w, h, h0, h1, v0, v1 }（画像の右向き・上向きの座標の範囲）。front/top は旧来の { x0, x1, a0, a1 } も付ける */
   renderOrtho(kind, widthM, pxPerM, maxPx = 4096) {
     if (!this.building) return null;
     const bd = this.building;
-    const a0 = kind === 'front' ? 0 : bd.minD - 0.5, a1 = kind === 'front' ? bd.maxY + 0.5 : bd.maxD + 0.5;
-    let w = Math.ceil(widthM * pxPerM), h = Math.ceil((a1 - a0) * pxPerM);
+    const e = 0.5, minD = bd.minD - e, maxD = bd.maxD + e, maxY = bd.maxY + e;
+    let h0, h1, v0, v1; const cam = new THREE.OrthographicCamera(0, 1, 1, 0, 1, 10000);
+    const look = (px, py, pz, tx, ty, tz, ux, uy, uz) => { cam.position.set(px, py, pz); cam.up.set(ux, uy, uz); cam.lookAt(tx, ty, tz); };
+    if (kind === 'front') { h0 = 0; h1 = widthM; v0 = 0; v1 = maxY; look(0, 0, maxD + 10, 0, 0, maxD - 1, 0, 1, 0); }
+    else if (kind === 'back') { h0 = -widthM; h1 = 0; v0 = 0; v1 = maxY; look(0, 0, minD - 10, 0, 0, minD + 1, 0, 1, 0); }
+    else if (kind === 'left') { h0 = minD; h1 = maxD; v0 = 0; v1 = maxY; look(-10, 0, 0, -9, 0, 0, 0, 1, 0); }
+    else if (kind === 'right') { h0 = -maxD; h1 = -minD; v0 = 0; v1 = maxY; look(widthM + 10, 0, 0, widthM + 9, 0, 0, 0, 1, 0); }
+    else { h0 = 0; h1 = widthM; v0 = -maxD; v1 = -minD; look(0, maxY + 10, 0, 0, maxY - 1, 0, 0, 0, -1); }
+    let w = Math.ceil((h1 - h0) * pxPerM), h = Math.ceil((v1 - v0) * pxPerM);
     const k = Math.min(1, maxPx / Math.max(w, h)); w = Math.max(1, Math.round(w * k)); h = Math.max(1, Math.round(h * k));
+    cam.left = h0; cam.right = h1; cam.bottom = v0; cam.top = v1; cam.far = Math.max(widthM, maxD - minD, maxY) + 40; cam.updateProjectionMatrix();
     const scene = new THREE.Scene();
     scene.add(new THREE.Mesh(bd.geometry, bd.unlit));
-    const cam = new THREE.OrthographicCamera(0, widthM, 0, 0, 1, 10000);
-    const span = (kind === 'front' ? bd.maxD - bd.minD : bd.maxY) + 20;
-    if (kind === 'front') { cam.top = a1; cam.bottom = a0; cam.position.set(0, 0, bd.maxD + 10); cam.up.set(0, 1, 0); cam.lookAt(0, 0, bd.maxD - 1); }
-    else { cam.top = -a0; cam.bottom = -a1; cam.position.set(0, bd.maxY + 10, 0); cam.up.set(0, 0, -1); cam.lookAt(0, bd.maxY - 1, 0); }
-    cam.far = span + 20; cam.updateProjectionMatrix();
     const rt = new THREE.WebGLRenderTarget(w, h, { colorSpace: THREE.SRGBColorSpace });
     const prevTarget = this.renderer.getRenderTarget(), prevClear = this.renderer.getClearColor(new THREE.Color()), prevAlpha = this.renderer.getClearAlpha();
     this.renderer.setRenderTarget(rt); this.renderer.setClearColor(0x000000, 0); this.renderer.clear();
@@ -141,7 +145,65 @@ export class View3D {
     const ctx = canvas.getContext('2d'); const img = ctx.createImageData(w, h);
     for (let y = 0; y < h; y++) img.data.set(px.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
     ctx.putImageData(img, 0, 0);
-    return { canvas, x0: 0, x1: widthM, a0, a1, w, h };
+    const top = kind === 'top';
+    return { canvas, w, h, h0, h1, v0, v1, x0: h0, x1: h1, a0: top ? -v1 : v0, a1: top ? -v0 : v1 };
+  }
+
+  /* 180° の箱（box180.js）。spec: { x0, x1, d0, d1, H } m、book: { width, depth } m、prints: { front, back, left, right, top }（renderOrtho の戻り）|null */
+  setBox(spec, book, prints = null) {
+    if (this.boxTex) for (const t of Object.values(this.boxTex)) t.dispose();
+    this.boxTex = null; this.boxMats = null;
+    if (prints && prints.front) {
+      this.boxTex = {}; this.boxMats = {};
+      for (const k of ['front', 'back', 'left', 'right', 'top']) {
+        if (!prints[k]) continue;
+        const t = new THREE.CanvasTexture(prints[k].canvas); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+        this.boxTex[k] = t;
+        this.boxMats[k] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.95, side: THREE.DoubleSide, transparent: true, alphaTest: 0.02 });
+      }
+    }
+    this.box = { spec, book, prints };
+    this.rebuildBox();
+  }
+  rebuildBox() {
+    this.clear(this.groups.box);
+    if (!this.box) return;
+    const { spec, book, prints } = this.box;
+    const b = boxAt(spec, this.theta * 180 / Math.PI, book);
+    const geomOf = (pts, uv = null) => {
+      const g = new THREE.BufferGeometry();
+      const arr = [], uvs = [];
+      const tri = (i, j, k) => { arr.push(...pts[i], ...pts[j], ...pts[k]); if (uv) uvs.push(...uv[i], ...uv[j], ...uv[k]); };
+      tri(0, 1, 2); tri(0, 2, 3);
+      g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      g.computeVertexNormals(); return g;
+    };
+    // ページ・のど・のりしろの線
+    this.groups.box.add(new THREE.Mesh(geomOf(b.pages.far), this.mats.paper));
+    this.groups.box.add(new THREE.Mesh(geomOf(b.pages.near), this.mats.paper));
+    const lines = [...b.gutter[0], ...b.gutter[1], ...b.glue.far[0], ...b.glue.far[1], ...b.glue.near[0], ...b.glue.near[1]];
+    // 面：外から見た (横, 縦) 座標 → 画像の UV。face: 4 点 + その絵本系の (x, d, h)
+    const { x0, x1, d0, d1, H } = spec; const dc = (d0 + d1) / 2;
+    const corners = {
+      front: { key: 'front', c: [[x0, d1, 0], [x1, d1, 0], [x1, d1, H], [x0, d1, H]] },
+      back: { key: 'back', c: [[x1, d0, 0], [x0, d0, 0], [x0, d0, H], [x1, d0, H]] },
+      roofF: { key: 'roof', c: [[x0, d1, H], [x1, d1, H], [x1, dc, H], [x0, dc, H]] },
+      roofB: { key: 'roof', c: [[x0, dc, H], [x1, dc, H], [x1, d0, H], [x0, d0, H]] },
+      leftB: { key: 'left', c: [[x0, d0, 0], [x0, dc, 0], [x0, dc, H], [x0, d0, H]] },
+      leftF: { key: 'left', c: [[x0, dc, 0], [x0, d1, 0], [x0, d1, H], [x0, dc, H]] },
+      rightF: { key: 'right', c: [[x1, d1, 0], [x1, dc, 0], [x1, dc, H], [x1, d1, H]] },
+      rightB: { key: 'right', c: [[x1, dc, 0], [x1, d0, 0], [x1, d0, H], [x1, dc, H]] },
+    };
+    for (const [name, pts] of Object.entries(b.faces)) {
+      const fc = corners[name]; const fv = FACE_VIEW[fc.key]; const p = prints && prints[fv.print];
+      const mat = p && this.boxMats && this.boxMats[fv.print] ? this.boxMats[fv.print] : (fc.key === 'roof' ? this.mats.paper : this.mats.riser);
+      const uv = p ? fc.c.map(([x, d, h]) => [(fv.h(x, d) - p.h0) / (p.h1 - p.h0), (fv.v(h, d) - p.v0) / (p.v1 - p.v0)]) : null;
+      this.groups.box.add(new THREE.Mesh(geomOf(pts, uv), mat));
+      for (let i = 0; i < 4; i++) lines.push(...pts[i], ...pts[(i + 1) % 4]);
+    }
+    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+    this.groups.box.add(new THREE.LineSegments(lg, this.mats.line));
   }
 
   /* 紙の模型。result: popup.buildStrips の戻り、page: { width, depthBase, depthBack } mm、scaleDen: 1/N
@@ -160,7 +222,7 @@ export class View3D {
     this.popup = { result, page, scaleDen, prints };
     this.rebuildPopup();
   }
-  setTheta(deg) { this.theta = deg * Math.PI / 180; this.rebuildPopup(); }
+  setTheta(deg) { this.theta = deg * Math.PI / 180; this.rebuildPopup(); this.rebuildBox(); }
   rebuildPopup() {
     this.clear(this.groups.popup);
     if (!this.popup) return;

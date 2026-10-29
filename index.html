@@ -83,6 +83,7 @@
         <label><input type="radio" name="mode" value="original"> 元の建物</label>
         <label><input type="radio" name="mode" value="blocks"> 単純化</label>
         <label><input type="radio" name="mode" value="popup" checked> 飛び出す絵本</label>
+        <label><input type="radio" name="mode" value="box"> 180°の箱</label>
         <span style="width:8px"></span>
         <label>開き角 <input type="range" id="theta" min="0" max="180" value="90" step="1"> <span id="thetaVal">90°</span></label>
         <button id="animate" title="閉じた状態から開く動きを見る">▶ 開く</button>
@@ -149,6 +150,16 @@
         <input type="number" id="pxPerMm" value="6" min="2" max="16" step="1" style="width:56px" title="印刷画像の細かさ（紙の 1mm あたりの画素数）">px/mm</div>
       <div class="hint">蹴上げ（鉛直面）には正面図の壁面、踏み面には平面図の屋根、立て紙には奥側の立面を、元の建物の正射投影から貼ります。テクスチャの無い建物では何も貼りません。</div>
       <div class="readout" id="fitInfo"></div>
+    </section>
+    <section>
+      <h2><span class="num">5</span>180° の箱の試作（側面を閉じる）</h2>
+      <div class="hint">本を平らに開くと、のどをまたいで側面の閉じた箱が立つ方式（市販のポップアップ絵本の「箱」）。側壁は中央の縦折りで紙袋のマチのようにたたまれ、屋根は棟折りで切妻になります。いちばん高い塊（塔）を 1 つの箱にします。</div>
+      <div class="row"><label>箱の大きさ</label>幅 <input type="number" id="boxW" step="0.5" style="width:62px">m　奥行 <input type="number" id="boxD" step="0.5" style="width:62px">m　高さ <input type="number" id="boxH" step="0.5" style="width:62px">m</div>
+      <div class="row"><label>箱の中心</label>x <input type="number" id="boxCx" step="0.5" style="width:62px">m　奥行 <input type="number" id="boxCd" step="0.5" style="width:62px">m　<button id="boxAuto" title="いちばん高い塊の範囲に戻す">塔に合わせる</button></div>
+      <div class="row"><label>本の大きさ</label><select id="bookPage"></select></div>
+      <div class="row"><label>展開図の紙</label><select id="boxPaper"></select>　<label style="min-width:0"><input type="checkbox" id="boxAutoScale" checked> 縮尺 自動</label> 1/<input type="number" id="boxScale" value="300" min="50" max="3000" step="50" disabled></div>
+      <div class="row"><button id="boxMake" class="primary">箱を作る（3D と展開図）</button></div>
+      <div class="readout" id="boxInfo">（建物を読み込むと、塔の大きさが入ります）</div>
     </section>
     <details><summary>使い方・しくみ</summary>
       <div class="hint">

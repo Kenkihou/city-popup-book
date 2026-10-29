@@ -8,6 +8,7 @@ import { buildStrips, chooseSide, checkFit, autoScale, popupMapper, SIDES } from
 import { renderSVG, pageOf, PAPERS } from './pattern.js';
 import { search, extract, catalogTilesets, KYOTO_TILESETS } from './plateau.js';
 import { encodeGlb } from './b3dm.js';
+import { tallestBlockSpec, specDims, autoBoxScale, checkBook, renderBoxNet, BOOK_PAGES } from './box180.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new View3D($('view'));
@@ -19,6 +20,10 @@ const state = {
   result: null,
   svg: '',
   scaleDen: 500,
+  boxSvg: '',        // 180° の箱の展開図（⑤）
+  boxScaleDen: 300,
+  boxMapper: null,   // 箱の座標（絵本系）を決めたときの mapper
+  boxEdited: false,  // 箱の寸法を手で変えたか（変えていなければ建物の再計算で塔に合わせ直す）
 };
 let svgBlobUrl = null;
 
@@ -218,8 +223,79 @@ function recompute() {
   // 設計図
   const svg = renderSVG(result, { paper, scaleDen, shading: $('shading').checked, prints: printHrefs, title: `飛び出す絵本　${b.meta.name || ''}`, meta: { ...b.meta, step: so.step } });
   state.svg = svg;
-  $('pattern').innerHTML = svg;
-  $('patternInfo').textContent = `${PAPERS[paper].name}　1/${scaleDen}　帯 ${result.strips.length} 本${printHrefs ? `　画像 ${printHrefs.front.w}×${printHrefs.front.h} / ${printHrefs.top.w}×${printHrefs.top.h}px` : ''}`;
+  state.patternInfo = `${PAPERS[paper].name}　1/${scaleDen}　帯 ${result.strips.length} 本${printHrefs ? `　画像 ${printHrefs.front.w}×${printHrefs.front.h} / ${printHrefs.top.w}×${printHrefs.top.h}px` : ''}`;
+  showPattern();
+
+  // ⑤ 箱：いちばん高い塊の範囲を入れる（手で変えていなければ）
+  state.boxMapper = mapper;
+  if (!state.boxEdited) fillBoxFromTallest();
+}
+
+/* 設計図の欄：3D が「180°の箱」のときは箱の展開図、それ以外は折り紙建築の設計図を出す */
+function showPattern() {
+  const box = view.mode === 'box';
+  const svg = box ? state.boxSvg : state.svg;
+  $('pattern').innerHTML = svg || '<div class="hint" style="padding:20px">（⑤「箱を作る」を押すと展開図が出ます）</div>';
+  $('patternInfo').textContent = box ? (state.boxInfo || '') : (state.patternInfo || '');
+}
+const activeSvg = () => (view.mode === 'box' ? state.boxSvg : state.svg);
+const activeSuffix = () => (view.mode === 'box' ? `_box180_1-${state.boxScaleDen}` : `_1-${state.scaleDen}`);
+
+// ---- ⑤ 180° の箱 --------------------------------------------------------------
+function fillBoxFromTallest() {
+  if (!state.raster || !state.boxMapper) return;
+  const sp = tallestBlockSpec(state.raster, state.boxMapper);
+  if (!sp) return;
+  const d = specDims(sp);
+  $('boxW').value = d.W.toFixed(1); $('boxD').value = d.D.toFixed(1); $('boxH').value = d.H.toFixed(1);
+  $('boxCx').value = ((sp.x0 + sp.x1) / 2).toFixed(1); $('boxCd').value = d.dc.toFixed(1);
+  state.boxEdited = false;
+}
+function boxSpecFromInputs() {
+  const W = +$('boxW').value, D = +$('boxD').value, H = +$('boxH').value, cx = +$('boxCx').value, cd = +$('boxCd').value;
+  if (!(W > 0 && D > 0 && H > 0)) return null;
+  return { x0: cx - W / 2, x1: cx + W / 2, d0: cd - D / 2, d1: cd + D / 2, H };
+}
+function makeBox() {
+  const b = state.building; const spec = boxSpecFromInputs();
+  if (!b || !spec) { alert('箱の大きさを入れてください'); return; }
+  const book = BOOK_PAGES[$('bookPage').value], paper = PAPERS[$('boxPaper').value];
+  const scaleDen = $('boxAutoScale').checked ? autoBoxScale(spec, paper) : +$('boxScale').value;
+  state.boxScaleDen = scaleDen;
+  if ($('boxAutoScale').checked) $('boxScale').value = scaleDen;
+  const chk = checkBook(spec, book, scaleDen);
+  // 画像：元の建物（いまの絵本系）の 5 方向の正射投影
+  let prints = null, hrefs = null;
+  if ($('texPrint').checked && view.building && view.building.textured) {
+    const pxPerM = (+$('pxPerMm').value || 6) * 1000 / scaleDen;
+    const widthM = state.result.W * state.raster.cell;
+    prints = {};
+    for (const k of ['front', 'back', 'left', 'right', 'top']) prints[k] = view.renderOrtho(k, widthM, pxPerM);
+    hrefs = {};
+    for (const k of Object.keys(prints)) hrefs[k] = { ...prints[k], href: prints[k].canvas.toDataURL('image/png') };
+  }
+  const m = scaleDen / 1000;
+  view.setBox(spec, { width: book.width * m, depth: book.depth * m }, prints);
+  state.boxSvg = renderBoxNet(spec, { paper, scaleDen, book, prints: hrefs, title: `180° の箱　${b.meta.name || ''}（中央棟）`, meta: b.meta });
+  const d = specDims(spec);
+  state.boxInfo = `${paper.name}　1/${scaleDen}　箱 ${d.W.toFixed(1)}×${d.D.toFixed(1)}×${d.H.toFixed(1)}m`;
+  $('boxInfo').innerHTML = `縮尺 1/${scaleDen}　紙の上で 幅 ${(d.W * 1000 / scaleDen).toFixed(0)}mm × 奥行 ${(d.D * 1000 / scaleDen).toFixed(0)}mm × 高さ ${(d.H * 1000 / scaleDen).toFixed(0)}mm　たたんだ長さ ${chk.foldedMm.toFixed(0)}mm（ページ奥行 ${book.depth}mm）\n` +
+    (chk.issues.length ? chk.issues.map((t) => `<span class="${t.startsWith('幅') ? 'hint' : 'warn'}">${t}</span>`).join('\n') : '<span class="ok">本に収まります</span>');
+  document.querySelector('input[name=mode][value=box]').checked = true;
+  view.setMode('box');
+  showPattern();
+}
+$('boxMake').addEventListener('click', makeBox);
+$('boxAuto').addEventListener('click', () => { fillBoxFromTallest(); makeBox(); });
+for (const id of ['boxW', 'boxD', 'boxH', 'boxCx', 'boxCd']) $(id).addEventListener('change', () => { state.boxEdited = true; });
+$('boxAutoScale').addEventListener('change', () => { $('boxScale').disabled = $('boxAutoScale').checked; });
+{
+  const sel = $('bookPage');
+  for (const [k, p] of Object.entries(BOOK_PAGES)) { const o = document.createElement('option'); o.value = k; o.textContent = p.name; sel.appendChild(o); }
+  sel.value = 'A5';
+  const sel2 = $('boxPaper');
+  for (const [k, p] of Object.entries(PAPERS)) { const o = document.createElement('option'); o.value = k; o.textContent = p.name; sel2.appendChild(o); }
+  sel2.value = 'A4';
 }
 
 for (const id of ['cell', 'step', 'minHeight', 'smooth', 'phi', 'gap', 'minStrip', 'paper', 'scale', 'shading', 'texPrint', 'pxPerMm']) $(id).addEventListener('change', recompute);
@@ -233,7 +309,7 @@ $('autoScale').addEventListener('change', () => { $('scale').disabled = $('autoS
 }
 
 // ---- 3D 画面の操作 ----------------------------------------------------------
-document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => view.setMode(r.value)));
+document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener('change', () => { view.setMode(r.value); showPattern(); }));
 $('showGhost').addEventListener('change', () => view.setGhost($('showGhost').checked));
 $('theta').addEventListener('input', () => { $('thetaVal').textContent = `${$('theta').value}°`; view.setTheta(+$('theta').value); });
 let anim = null;
@@ -257,8 +333,8 @@ function download(name, data, type) {
   const a = document.createElement('a'); a.href = svgBlobUrl; a.download = name; document.body.appendChild(a); a.click(); a.remove();
 }
 const baseName = () => (state.building?.meta.name || 'building').replace(/[\\/:*?"<>|\s]+/g, '_');
-$('openSvg').addEventListener('click', () => { if (state.svg) window.open(URL.createObjectURL(new Blob([state.svg], { type: 'image/svg+xml' })), '_blank'); });
-$('saveSvg').addEventListener('click', () => { if (state.svg) download(`popup_${baseName()}_1-${state.scaleDen}.svg`, state.svg, 'image/svg+xml'); });
+$('openSvg').addEventListener('click', () => { const svg = activeSvg(); if (svg) window.open(URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })), '_blank'); });
+$('saveSvg').addEventListener('click', () => { const svg = activeSvg(); if (svg) download(`popup_${baseName()}${activeSuffix()}.svg`, svg, 'image/svg+xml'); });
 $('saveJson').addEventListener('click', () => {
   if (!state.result) return;
   const r = state.result, b = state.building;
@@ -278,15 +354,16 @@ async function saveToServer(name, data, base64 = false) {
   return (await r.json()).saved;
 }
 $('saveServer').addEventListener('click', async () => {
-  if (!state.svg) return;
+  const svg = activeSvg(); if (!svg) return;
   try {
-    const name = `${baseName()}_${$('paper').value}_1-${state.scaleDen}${$('texPrint').checked && view.building?.textured ? '_tex' : ''}.svg`;
-    const saved = await saveToServer(name, state.svg);
+    const box = view.mode === 'box';
+    const name = `${baseName()}_${box ? $('boxPaper').value + '_box180_1-' + state.boxScaleDen : $('paper').value + '_1-' + state.scaleDen}${$('texPrint').checked && view.building?.textured ? '_tex' : ''}.svg`;
+    const saved = await saveToServer(name, svg);
     status('保存しました: ' + saved); setTimeout(() => status(''), 4000);
   } catch (e) { alert('保存できませんでした: ' + e.message); }
 });
 $('print').addEventListener('click', () => {
-  const p = PAPERS[$('paper').value];
+  const p = PAPERS[view.mode === 'box' ? $('boxPaper').value : $('paper').value];
   let st = document.getElementById('printPage'); if (!st) { st = document.createElement('style'); st.id = 'printPage'; document.head.appendChild(st); }
   st.textContent = `@page { size: ${p.width}mm ${p.height}mm; margin: 0; }`;
   window.print();
