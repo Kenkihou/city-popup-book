@@ -8,7 +8,7 @@ import { buildStrips, chooseSide, checkFit, autoScale, popupMapper, SIDES } from
 import { renderSVG, pageOf, PAPERS } from './pattern.js';
 import { search, extract, catalogTilesets, KYOTO_TILESETS } from './plateau.js';
 import { encodeGlb } from './b3dm.js';
-import { tallestBlockSpec, specDims, autoBoxScale, checkBook, renderBoxNet, BOOK_PAGES } from './box180.js';
+import { autoBoxes, autoBoxesScale, checkBoxes, renderBoxesNet, BOOK_PAGES } from './box180.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new View3D($('view'));
@@ -242,30 +242,44 @@ function showPattern() {
 const activeSvg = () => (view.mode === 'box' ? state.boxSvg : state.svg);
 const activeSuffix = () => (view.mode === 'box' ? `_box180_1-${state.boxScaleDen}` : `_1-${state.scaleDen}`);
 
-// ---- ⑤ 180° の箱 --------------------------------------------------------------
+// ---- ⑤ 180° の箱（本体＋塔屋） ----------------------------------------------------
 function fillBoxFromTallest() {
   if (!state.raster || !state.boxMapper) return;
-  const sp = tallestBlockSpec(state.raster, state.boxMapper);
-  if (!sp) return;
-  const d = specDims(sp);
-  $('boxW').value = d.W.toFixed(1); $('boxD').value = d.D.toFixed(1); $('boxH').value = d.H.toFixed(1);
-  $('boxCx').value = ((sp.x0 + sp.x1) / 2).toFixed(1); $('boxCd').value = d.dc.toFixed(1);
+  const bs = autoBoxes(state.raster, state.boxMapper);
+  if (!bs.length) return;
+  state.autoBoxes = bs;
+  const body = bs[0], tw = bs[1];
+  $('bodyW').value = (body.x1 - body.x0).toFixed(1); $('bodyD').value = body.D.toFixed(1); $('bodyH').value = body.H.toFixed(1);
+  $('bodyCx').value = ((body.x0 + body.x1) / 2).toFixed(1); $('bodyCd').value = ((body.src.d0 + body.src.d1) / 2).toFixed(1);
+  $('towerOn').checked = !!tw;
+  if (tw) { $('towerW').value = (tw.x1 - tw.x0).toFixed(1); $('towerD').value = tw.D.toFixed(1); $('towerH').value = tw.H.toFixed(1); $('towerCx').value = ((tw.x0 + tw.x1) / 2).toFixed(1); }
+  else { for (const id of ['towerW', 'towerD', 'towerH', 'towerCx']) $(id).value = ''; }
   state.boxEdited = false;
 }
-function boxSpecFromInputs() {
-  const W = +$('boxW').value, D = +$('boxD').value, H = +$('boxH').value, cx = +$('boxCx').value, cd = +$('boxCd').value;
+/* 入力から箱の並びを作る。画像を取る範囲（src）は、本体はのどを中心に、塔屋は高さ地図の実際の位置（自動で拾ったもの）を使う */
+function boxesFromInputs() {
+  const W = +$('bodyW').value, D = +$('bodyD').value, H = +$('bodyH').value, cx = +$('bodyCx').value, cd = +$('bodyCd').value;
   if (!(W > 0 && D > 0 && H > 0)) return null;
-  return { x0: cx - W / 2, x1: cx + W / 2, d0: cd - D / 2, d1: cd + D / 2, H };
+  const boxes = [{ name: '本体', x0: cx - W / 2, x1: cx + W / 2, D, H, parent: null, src: { x0: cx - W / 2, x1: cx + W / 2, d0: cd - D / 2, d1: cd + D / 2, h0: 0, h1: H } }];
+  if ($('towerOn').checked) {
+    const tW = +$('towerW').value, tD = +$('towerD').value, tH = +$('towerH').value, tcx = +$('towerCx').value;
+    if (tW > 0 && tD > 0 && tH > 0) {
+      const auto = state.autoBoxes && state.autoBoxes[1];
+      const sd = auto ? (auto.src.d0 + auto.src.d1) / 2 : cd;
+      boxes.push({ name: '塔屋', x0: tcx - tW / 2, x1: tcx + tW / 2, D: Math.min(tD, D), H: tH, parent: 0, src: { x0: tcx - tW / 2, x1: tcx + tW / 2, d0: sd - tD / 2, d1: sd + tD / 2, h0: H, h1: H + tH } });
+    }
+  }
+  return boxes;
 }
 function makeBox() {
-  const b = state.building; let spec = boxSpecFromInputs();
-  if (b && !spec) { fillBoxFromTallest(); spec = boxSpecFromInputs(); }
-  if (!b || !spec) { alert('箱の大きさを入れてください'); return; }
+  const b = state.building; let boxes = boxesFromInputs();
+  if (b && !boxes) { fillBoxFromTallest(); boxes = boxesFromInputs(); }
+  if (!b || !boxes) { alert('本体の大きさを入れてください'); return; }
   const book = BOOK_PAGES[$('bookPage').value], paper = PAPERS[$('boxPaper').value];
-  const scaleDen = $('boxAutoScale').checked ? autoBoxScale(spec, paper) : +$('boxScale').value;
+  const scaleDen = $('boxAutoScale').checked ? autoBoxesScale(boxes, paper, book) : +$('boxScale').value;
   state.boxScaleDen = scaleDen;
   if ($('boxAutoScale').checked) $('boxScale').value = scaleDen;
-  const chk = checkBook(spec, book, scaleDen);
+  const chk = checkBoxes(boxes, book, scaleDen);
   // 画像：元の建物（いまの絵本系）の 5 方向の正射投影
   let prints = null, hrefs = null;
   if ($('texPrint').checked && view.building && view.building.textured) {
@@ -277,28 +291,30 @@ function makeBox() {
     for (const k of Object.keys(prints)) hrefs[k] = { ...prints[k], href: prints[k].canvas.toDataURL('image/png') };
   }
   const m = scaleDen / 1000;
-  view.setBox(spec, { width: book.width * m, depth: book.depth * m }, prints);
-  state.boxSvg = renderBoxNet(spec, { paper, scaleDen, book, prints: hrefs, title: `180° の箱　${b.meta.name || ''}（中央棟）`, meta: b.meta });
-  const d = specDims(spec);
-  state.boxInfo = `${paper.name}　1/${scaleDen}　箱 ${d.W.toFixed(1)}×${d.D.toFixed(1)}×${d.H.toFixed(1)}m`;
-  $('boxInfo').innerHTML = `縮尺 1/${scaleDen}　紙の上で 幅 ${(d.W * 1000 / scaleDen).toFixed(0)}mm × 奥行 ${(d.D * 1000 / scaleDen).toFixed(0)}mm × 高さ ${(d.H * 1000 / scaleDen).toFixed(0)}mm　たたんだ長さ ${chk.foldedMm.toFixed(0)}mm（ページ奥行 ${book.depth}mm）\n` +
-    (chk.issues.length ? chk.issues.map((t) => `<span class="${t.startsWith('幅') ? 'hint' : 'warn'}">${t}</span>`).join('\n') : '<span class="ok">本に収まります</span>');
+  const gutterD = +$('bodyCd').value;
+  view.setBox(boxes, { width: book.width * m, depth: book.depth * m }, prints, gutterD);
+  state.boxes = boxes;
+  state.boxSvg = renderBoxesNet(boxes, { paper, scaleDen, book, prints: hrefs, title: `180° の箱　${b.meta.name || ''}（${boxes.map((x) => x.name).join('＋')}）`, meta: b.meta });
+  state.boxInfo = `${paper.name}　1/${scaleDen}　${boxes.map((x) => `${x.name} ${(x.x1 - x.x0).toFixed(0)}×${x.D.toFixed(0)}×${x.H.toFixed(0)}m`).join('　')}`;
+  const mm = (v) => (v * 1000 / scaleDen).toFixed(0);
+  $('boxInfo').innerHTML = `縮尺 1/${scaleDen}　` + boxes.map((x) => `${x.name} ${mm(x.x1 - x.x0)}×${mm(x.D)}×${mm(x.H)}mm`).join('　') + `　たたんだ全体 ${chk.foldedMm.toFixed(0)}mm（ページ奥行 ${book.depth}mm）\n` +
+    (chk.issues.length ? chk.issues.map((t) => `<span class="${t.includes('外折り') ? 'hint' : 'warn'}">${t}</span>`).join('\n') : '<span class="ok">本に収まります</span>');
   document.querySelector('input[name=mode][value=box]').checked = true;
   view.setMode('box');
   showPattern();
 }
 $('boxMake').addEventListener('click', makeBox);
 $('boxAuto').addEventListener('click', () => { fillBoxFromTallest(); makeBox(); });
-for (const id of ['boxW', 'boxD', 'boxH', 'boxCx', 'boxCd']) $(id).addEventListener('change', () => { state.boxEdited = true; if (state.boxSvg) makeBox(); });
+for (const id of ['bodyW', 'bodyD', 'bodyH', 'bodyCx', 'bodyCd', 'towerOn', 'towerW', 'towerD', 'towerH', 'towerCx']) $(id).addEventListener('change', () => { state.boxEdited = true; if (state.boxSvg) makeBox(); });
 for (const id of ['bookPage', 'boxPaper', 'boxScale']) $(id).addEventListener('change', () => { if (state.boxSvg) makeBox(); });
-$('boxAutoScale').addEventListener('change', () => { $('boxScale').disabled = $('boxAutoScale').checked; });
+$('boxAutoScale').addEventListener('change', () => { $('boxScale').disabled = $('boxAutoScale').checked; if (state.boxSvg) makeBox(); });
 {
   const sel = $('bookPage');
   for (const [k, p] of Object.entries(BOOK_PAGES)) { const o = document.createElement('option'); o.value = k; o.textContent = p.name; sel.appendChild(o); }
-  sel.value = 'A5';
+  sel.value = 'A4';
   const sel2 = $('boxPaper');
   for (const [k, p] of Object.entries(PAPERS)) { const o = document.createElement('option'); o.value = k; o.textContent = p.name; sel2.appendChild(o); }
-  sel2.value = 'A4';
+  sel2.value = 'A3';
 }
 
 for (const id of ['cell', 'step', 'minHeight', 'smooth', 'phi', 'gap', 'minStrip', 'paper', 'scale', 'shading', 'texPrint', 'pxPerMm']) $(id).addEventListener('change', recompute);

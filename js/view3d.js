@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toBlocks } from './simplify.js';
-import { boxAt, FACE_VIEW } from './box180.js';
+import { boxesAt, FACE_VIEW, faceCorners } from './box180.js';
 
 const PLAIN = 0xd9cfbf;
 
@@ -149,8 +149,8 @@ export class View3D {
     return { canvas, w, h, h0, h1, v0, v1, x0: h0, x1: h1, a0: top ? -v1 : v0, a1: top ? -v0 : v1 };
   }
 
-  /* 180° の箱（box180.js）。spec: { x0, x1, d0, d1, H } m、book: { width, depth } m、prints: { front, back, left, right, top }（renderOrtho の戻り）|null */
-  setBox(spec, book, prints = null) {
+  /* 180° の箱（box180.js）。boxes: 箱の並び、book: { width, depth } m、prints: { front, back, left, right, top }（renderOrtho の戻り）|null、gutterD: のどの d */
+  setBox(boxes, book, prints = null, gutterD = 0) {
     if (this.boxTex) for (const t of Object.values(this.boxTex)) t.dispose();
     this.boxTex = null; this.boxMats = null;
     if (prints && prints.front) {
@@ -162,14 +162,14 @@ export class View3D {
         this.boxMats[k] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.95, side: THREE.DoubleSide, transparent: true, alphaTest: 0.02 });
       }
     }
-    this.box = { spec, book, prints };
+    this.box = { boxes, book, prints, gutterD };
     this.rebuildBox();
   }
   rebuildBox() {
     this.clear(this.groups.box);
     if (!this.box) return;
-    const { spec, book, prints } = this.box;
-    const b = boxAt(spec, this.theta * 180 / Math.PI, book);
+    const { boxes, book, prints, gutterD } = this.box;
+    const r = boxesAt(boxes, this.theta * 180 / Math.PI, book, gutterD);
     const geomOf = (pts, uv = null) => {
       const g = new THREE.BufferGeometry();
       const arr = [], uvs = [];
@@ -179,28 +179,19 @@ export class View3D {
       if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
       g.computeVertexNormals(); return g;
     };
-    // ページ・のど・のりしろの線
-    this.groups.box.add(new THREE.Mesh(geomOf(b.pages.far), this.mats.paper));
-    this.groups.box.add(new THREE.Mesh(geomOf(b.pages.near), this.mats.paper));
-    const lines = [...b.gutter[0], ...b.gutter[1], ...b.glue.far[0], ...b.glue.far[1], ...b.glue.near[0], ...b.glue.near[1]];
-    // 面：外から見た (横, 縦) 座標 → 画像の UV。face: 4 点 + その絵本系の (x, d, h)
-    const { x0, x1, d0, d1, H } = spec; const dc = (d0 + d1) / 2;
-    const corners = {
-      front: { key: 'front', c: [[x0, d1, 0], [x1, d1, 0], [x1, d1, H], [x0, d1, H]] },
-      back: { key: 'back', c: [[x1, d0, 0], [x0, d0, 0], [x0, d0, H], [x1, d0, H]] },
-      roofF: { key: 'roof', c: [[x0, d1, H], [x1, d1, H], [x1, dc, H], [x0, dc, H]] },
-      roofB: { key: 'roof', c: [[x0, dc, H], [x1, dc, H], [x1, d0, H], [x0, d0, H]] },
-      leftB: { key: 'left', c: [[x0, d0, 0], [x0, dc, 0], [x0, dc, H], [x0, d0, H]] },
-      leftF: { key: 'left', c: [[x0, dc, 0], [x0, d1, 0], [x0, d1, H], [x0, dc, H]] },
-      rightF: { key: 'right', c: [[x1, d1, 0], [x1, dc, 0], [x1, dc, H], [x1, d1, H]] },
-      rightB: { key: 'right', c: [[x1, dc, 0], [x1, d0, 0], [x1, d0, H], [x1, dc, H]] },
-    };
-    for (const [name, pts] of Object.entries(b.faces)) {
-      const fc = corners[name]; const fv = FACE_VIEW[fc.key]; const p = prints && prints[fv.print];
-      const mat = p && this.boxMats && this.boxMats[fv.print] ? this.boxMats[fv.print] : (fc.key === 'roof' ? this.mats.paper : this.mats.riser);
-      const uv = p ? fc.c.map(([x, d, h]) => [(fv.h(x, d) - p.h0) / (p.h1 - p.h0), (fv.v(h, d) - p.v0) / (p.v1 - p.v0)]) : null;
-      this.groups.box.add(new THREE.Mesh(geomOf(pts, uv), mat));
-      for (let i = 0; i < 4; i++) lines.push(...pts[i], ...pts[(i + 1) % 4]);
+    this.groups.box.add(new THREE.Mesh(geomOf(r.pages.far), this.mats.paper));
+    this.groups.box.add(new THREE.Mesh(geomOf(r.pages.near), this.mats.paper));
+    const lines = [...r.gutter[0], ...r.gutter[1]];
+    for (const it of r.items) {
+      for (const g of it.glue) lines.push(...g[0], ...g[1]);
+      const corners = faceCorners(it.box);
+      for (const [name, pts] of Object.entries(it.faces)) {
+        const fc = corners[name]; const fv = FACE_VIEW[fc.key]; const p = prints && prints[fv.print];
+        const mat = p && this.boxMats && this.boxMats[fv.print] ? this.boxMats[fv.print] : (fc.key === 'roof' ? this.mats.paper : this.mats.riser);
+        const uv = p ? fc.c.map(([x, d, h]) => [(fv.h(x, d) - p.h0) / (p.h1 - p.h0), (fv.v(h, d) - p.v0) / (p.v1 - p.v0)]) : null;
+        this.groups.box.add(new THREE.Mesh(geomOf(pts, uv), mat));
+        for (let i = 0; i < 4; i++) lines.push(...pts[i], ...pts[(i + 1) % 4]);
+      }
     }
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
     this.groups.box.add(new THREE.LineSegments(lg, this.mats.line));

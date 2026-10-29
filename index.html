@@ -152,14 +152,18 @@
       <div class="readout" id="fitInfo"></div>
     </section>
     <section>
-      <h2><span class="num">5</span>180° の箱の試作（側面を閉じる）</h2>
-      <div class="hint">本を平らに開くと、のどをまたいで側面の閉じた箱が立つ方式（市販のポップアップ絵本の「箱」）。側壁は中央の縦折りで紙袋のマチのようにたたまれ、屋根は棟折りで切妻になります。いちばん高い塊（塔）を 1 つの箱にします。</div>
-      <div class="row"><label>箱の大きさ</label>幅 <input type="number" id="boxW" step="0.5" style="width:62px">m　奥行 <input type="number" id="boxD" step="0.5" style="width:62px">m　高さ <input type="number" id="boxH" step="0.5" style="width:62px">m</div>
-      <div class="row"><label>箱の中心</label>x <input type="number" id="boxCx" step="0.5" style="width:62px">m　奥行 <input type="number" id="boxCd" step="0.5" style="width:62px">m　<button id="boxAuto" title="いちばん高い塊の範囲に戻す">塔に合わせる</button></div>
+      <h2><span class="num">5</span>180° の箱（側面を閉じる・箱を積む）</h2>
+      <div class="hint">本を平らに開くと、のどをまたいで側面の閉じた箱が立つ方式。側壁は中央の縦折りでたたまれ、屋根は棟折りで切妻になります。
+        屋根の 2 枚は閉じるにつれてページと同じ角度の山形になるので、その上に塔屋の箱を積めます。どの箱も奥行の中心はのどの真上です
+        （③の「背の側」で x の向きが変わります。京都市役所は「西を背に」にすると、のどが南北に通って塔屋が正面の位置に残ります）。</div>
+      <div class="row"><label>本体</label>幅 <input type="number" id="bodyW" step="0.5" style="width:62px">　奥行 <input type="number" id="bodyD" step="0.5" style="width:62px">　高さ <input type="number" id="bodyH" step="0.5" style="width:62px"> m</div>
+      <div class="row"><label>本体の中心</label>x <input type="number" id="bodyCx" step="0.5" style="width:62px">　奥行（のどの位置） <input type="number" id="bodyCd" step="0.5" style="width:62px"> m</div>
+      <div class="row"><label><input type="checkbox" id="towerOn" checked> 塔屋</label>幅 <input type="number" id="towerW" step="0.5" style="width:62px">　奥行 <input type="number" id="towerD" step="0.5" style="width:62px">　高さ <input type="number" id="towerH" step="0.5" style="width:62px"> m（本体の屋根から上）</div>
+      <div class="row"><label>塔屋の中心</label>x <input type="number" id="towerCx" step="0.5" style="width:62px"> m　<button id="boxAuto" title="高さ地図から本体と塔屋を自動で決め直す">自動で決め直す</button></div>
       <div class="row"><label>本の大きさ</label><select id="bookPage"></select></div>
       <div class="row"><label>展開図の紙</label><select id="boxPaper"></select>　<label style="min-width:0"><input type="checkbox" id="boxAutoScale" checked> 縮尺 自動</label> 1/<input type="number" id="boxScale" value="300" min="50" max="3000" step="50" disabled></div>
       <div class="row"><button id="boxMake" class="primary">箱を作り直す（3D と展開図）</button>　<span class="hint">3D の「180°の箱」を選ぶと自動で作ります</span></div>
-      <div class="readout" id="boxInfo">（建物を読み込むと、塔の大きさが入ります）</div>
+      <div class="readout" id="boxInfo">（建物を読み込むと、本体と塔屋の大きさが入ります）</div>
     </section>
     <details><summary>使い方・しくみ</summary>
       <div class="hint">
